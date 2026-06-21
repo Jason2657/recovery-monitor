@@ -375,28 +375,26 @@ async def live_stream(patient_id: str):
     base_dbp   = float(latest.get("diastolic_bp",        80))
     sleep_ints = int(latest.get("sleep_interruptions",   2))
 
-    # Tilt sensor state machine (simulation fallback)
-    tilt_active   = False
-    tilt_count    = 0
-    tilt_cooldown = 0
-    tilt_timer    = 0
-    prev_arduino_tilt = 0   # track rising edge from Arduino
+    # Tilt sensor — Arduino only (no simulation)
+    tilt_active       = False
+    tilt_count        = 0
+    prev_arduino_tilt = 0   # rising-edge detection
 
-    # Light sensor state  (>200 = dark, <=200 = light on / patient awake)
-    light_value       = 300   # default dark
-    light_is_dark     = True  # True = dark room, False = light on
-    prev_light_dark   = True  # for edge detection
-    light_wake_count  = 0     # dark→light transitions = patient woke & turned on light
-    sim_light_timer   = 0     # simulation: how long light stays on
-    sim_light_cool    = 0     # simulation cooldown between events
+    # Light sensor — Arduino only (>200 = dark room, <=200 = light on)
+    light_value       = 300
+    light_is_dark     = True
+    prev_light_dark   = True
+    light_wake_count  = 0
+    # Only count wakes after the room has gone dark at least once (nighttime gate)
+    room_was_dark_once = False
 
     # HR drift — subtle slow oscillation to simulate activity/rest cycles
     hr_drift = 0.0
 
     async def generate():
-        nonlocal tilt_active, tilt_count, tilt_cooldown, tilt_timer, prev_arduino_tilt
-        nonlocal light_value, light_is_dark, prev_light_dark, light_wake_count
-        nonlocal sim_light_timer, sim_light_cool
+        nonlocal tilt_active, tilt_count, prev_arduino_tilt
+        nonlocal light_value, light_is_dark, prev_light_dark, light_wake_count, room_was_dark_once
+        nonlocal hr_drift
         t = 0
         while True:
             # Cardiac variability: sine at ~0.1 Hz + Gaussian noise
@@ -417,53 +415,22 @@ async def live_stream(patient_id: str):
             sbp = base_sbp + random.gauss(0, 2.5)
             dbp = base_dbp + random.gauss(0, 1.5)
 
-            # ── Tilt sensor: prefer real Arduino, fall back to simulation ──
-            if _arduino_state["connected"]:
-                cur_tilt = _arduino_state["tilt"]
-                if cur_tilt == 1 and prev_arduino_tilt == 0:
-                    tilt_count += 1
-                tilt_active = (cur_tilt == 1)
-                prev_arduino_tilt = cur_tilt
+            # ── Arduino sensors (tilt + light) — always live, no simulation ──
+            cur_tilt = _arduino_state.get("tilt", 0)
+            if cur_tilt == 1 and prev_arduino_tilt == 0:
+                tilt_count += 1
+            tilt_active       = (cur_tilt == 1)
+            prev_arduino_tilt = cur_tilt
 
-                # Light sensor from Arduino (>200 = dark, <=200 = light on)
-                light_value   = _arduino_state["light"]
-                light_is_dark = (light_value > 200)
-                if not light_is_dark and prev_light_dark:   # dark→light edge
-                    light_wake_count += 1
-                prev_light_dark = light_is_dark
-            else:
-                # Simulation: probability-based tilt events
-                tilt_cooldown = max(0, tilt_cooldown - 1)
-                if not tilt_active and tilt_cooldown == 0:
-                    prob_per_sec = sleep_ints / (8 * 3600)
-                    if random.random() < prob_per_sec * 20:
-                        tilt_active = True
-                        tilt_count += 1
-                        tilt_timer = random.randint(4, 18)
-                elif tilt_active:
-                    tilt_timer -= 1
-                    if tilt_timer <= 0:
-                        tilt_active = False
-                        tilt_cooldown = random.randint(45, 180)
+            light_value   = _arduino_state.get("light", 300)
+            light_is_dark = (light_value > 200)
 
-                # Simulation: light wake events (roughly 1-2 per night)
-                sim_light_cool = max(0, sim_light_cool - 1)
-                if light_is_dark and sim_light_cool == 0:
-                    prob_light = (sleep_ints * 0.5) / (8 * 3600)
-                    if random.random() < prob_light * 30:
-                        light_is_dark = False
-                        light_value   = random.randint(50, 180)
-                        light_wake_count += 1
-                        sim_light_timer = random.randint(15, 60)
-                elif not light_is_dark:
-                    sim_light_timer -= 1
-                    light_value = random.randint(50, 180)
-                    if sim_light_timer <= 0:
-                        light_is_dark = True
-                        light_value   = random.randint(220, 350)
-                        sim_light_cool = random.randint(120, 600)
-                else:
-                    light_value = random.randint(220, 350)
+            # Gate: only track nighttime wakes after room first goes dark
+            if light_is_dark:
+                room_was_dark_once = True
+            if room_was_dark_once and not light_is_dark and prev_light_dark:
+                light_wake_count += 1
+            prev_light_dark = light_is_dark
 
             # NEWS2 quick score for live display
             news2 = 0

@@ -320,7 +320,7 @@
               <span class="live-dot"></span>
               <span class="text-sm font-semibold text-white">Live Patient Monitor</span>
               <span class="mono text-xs text-slate-500" id="live-timestamp">--:--:--</span>
-              <span id="arduino-badge" class="arduino-badge sim">⚡ Simulated</span>
+              <span id="arduino-badge" class="arduino-badge sim">🔌 Arduino</span>
             </div>
             <div class="flex items-center gap-3">
               <span class="text-xs text-slate-500">NEWS2 Live:</span>
@@ -489,9 +489,9 @@
 
             <!-- Red flags (collapsible) -->
             <details class="res-section">
-              <summary class="rounded-lg px-3 py-2 border border-red-500/20" style="background:rgba(239,68,68,0.05)">
-                <span class="text-xs font-semibold text-red-400 uppercase tracking-widest">🚨 Potential Red Flags</span>
-                <span class="chev text-red-700">▶</span>
+              <summary>
+                <span class="text-xs font-semibold text-slate-500 uppercase tracking-widest">Potential Red Flags</span>
+                <span class="chev">▶</span>
               </summary>
               <ul id="res-redflags" class="space-y-1 mt-1.5 pl-1"></ul>
             </details>
@@ -1724,9 +1724,16 @@ function startLiveMonitor(pid) {
   liveCanvas.width  = rect.width  * window.devicePixelRatio || 800;
   liveCanvas.height = rect.height * window.devicePixelRatio || 90;
 
-  // Update tilt log to empty
-  document.getElementById('tilt-log').innerHTML = '<p class="text-xs text-slate-700 italic">No disturbances recorded yet.</p>';
-  document.getElementById('tilt-count').textContent = '0';
+  // Reset logs and counters
+  const tiltLogEl = document.getElementById('tilt-log');
+  const lightLogEl = document.getElementById('light-log');
+  if (tiltLogEl)  tiltLogEl.innerHTML  = '<p class="text-xs text-slate-700 italic">No disturbances recorded yet.</p>';
+  if (lightLogEl) lightLogEl.innerHTML = '<p class="text-xs text-slate-700 italic">No events yet.</p>';
+  document.getElementById('tilt-count').textContent  = '0';
+  const lwcEl2 = document.getElementById('light-wake-count');
+  if (lwcEl2) lwcEl2.textContent = '0';
+  const lpill2 = document.getElementById('light-pill');
+  if (lpill2) { lpill2.className = 'light-dark-pill text-xs font-bold px-2 py-0.5 rounded-full'; lpill2.textContent = '🌙 Dark'; }
 
   liveES = new EventSource(`/api/live/${pid}`);
   liveES.onmessage = (e) => {
@@ -1818,11 +1825,11 @@ function onLiveData(d) {
   histTilt.shift();  histTilt.push(d.tilt_active ? 1 : 0);
   histLight.shift(); histLight.push(isDark ? 0 : 1);
 
-  // Arduino vs simulation badge
+  // Arduino connection status
   const ab = document.getElementById('arduino-badge');
   if (ab) {
-    ab.className  = d.arduino_connected ? 'arduino-badge' : 'arduino-badge sim';
-    ab.textContent = d.arduino_connected ? '🔌 Arduino' : '⚡ Simulated';
+    ab.className   = d.arduino_connected ? 'arduino-badge' : 'arduino-badge sim';
+    ab.textContent = d.arduino_connected ? '🔌 Arduino' : '🔌 Arduino (waiting)';
   }
 
   // Redraw charts

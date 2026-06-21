@@ -14,6 +14,8 @@ import asyncio
 import threading
 import queue
 import random
+import math
+import time
 import anthropic
 import httpx
 from dotenv import load_dotenv
@@ -277,6 +279,119 @@ async def text_to_speech(request: Request):
     )
 
 
+# ─── Routes: live vitals streaming (SSE) ─────────────────────────────────────
+
+@app.get("/api/live/{patient_id}")
+async def live_stream(patient_id: str):
+    """
+    Stream simulated real-time vitals for a patient at 1 Hz.
+    Models a wearable + tilt sensor generating live data.
+    SSE format: one JSON object per second.
+    """
+    patients = all_patients()
+    if patient_id not in patients:
+        raise HTTPException(404, "Patient not found")
+
+    pdata = patients[patient_id]
+    profile = pdata["profile"]
+    latest = pdata["sensor_history"][-1] if pdata["sensor_history"] else {}
+    condition = profile.get("primary_condition", "general")
+
+    base_hr    = float(latest.get("hr_resting_bpm",    profile.get("baseline_hr_bpm",    72)))
+    base_spo2  = float(latest.get("spo2_pct",          profile.get("baseline_spo2_pct",  97)))
+    base_rr    = float(latest.get("rr_breaths_per_min", 16))
+    base_temp  = float(latest.get("temp_c",             37.0))
+    base_sbp   = float(latest.get("systolic_bp",        120))
+    base_dbp   = float(latest.get("diastolic_bp",        80))
+    sleep_ints = int(latest.get("sleep_interruptions",   2))
+
+    # Tilt sensor state machine
+    tilt_active   = False
+    tilt_count    = 0
+    tilt_cooldown = 0
+    tilt_timer    = 0
+
+    # HR drift — subtle slow oscillation to simulate activity/rest cycles
+    hr_drift = 0.0
+
+    async def generate():
+        nonlocal tilt_active, tilt_count, tilt_cooldown, tilt_timer, hr_drift
+        t = 0
+        while True:
+            # Cardiac variability: sine at ~0.1 Hz + Gaussian noise
+            hr_drift += random.gauss(0, 0.08)
+            hr_drift  = max(-8, min(8, hr_drift))   # bounded drift
+            hr = base_hr + hr_drift + 3.0 * math.sin(t * 0.07) + random.gauss(0, 1.2)
+            hr = round(max(38, min(200, hr)), 1)
+
+            spo2 = base_spo2 + random.gauss(0, 0.15)
+            spo2 = round(max(80, min(100, spo2)), 1)
+
+            rr = base_rr + random.gauss(0, 0.4)
+            rr = round(max(6, min(40, rr)), 1)
+
+            temp = base_temp + random.gauss(0, 0.04)
+            temp = round(max(34.0, min(42.0, temp)), 2)
+
+            sbp = base_sbp + random.gauss(0, 2.5)
+            dbp = base_dbp + random.gauss(0, 1.5)
+
+            # Tilt / sleep-disturbance sensor
+            tilt_cooldown = max(0, tilt_cooldown - 1)
+            if not tilt_active and tilt_cooldown == 0:
+                # Probability per second derived from expected interruptions per night (8h)
+                prob_per_sec = sleep_ints / (8 * 3600)
+                if random.random() < prob_per_sec * 20:   # ×20 to make demo visible
+                    tilt_active = True
+                    tilt_count += 1
+                    tilt_timer = random.randint(4, 18)
+            elif tilt_active:
+                tilt_timer -= 1
+                if tilt_timer <= 0:
+                    tilt_active = False
+                    tilt_cooldown = random.randint(45, 180)
+
+            # NEWS2 quick score for live display
+            news2 = 0
+            if rr <= 8 or rr >= 25: news2 += 3
+            elif 9 <= rr <= 11 or 21 <= rr <= 24: news2 += 2 if rr >= 21 else 1
+            if spo2 <= 91: news2 += 3
+            elif spo2 <= 93: news2 += 2
+            elif spo2 <= 95: news2 += 1
+            if sbp <= 90 or sbp >= 220: news2 += 3
+            elif sbp <= 100: news2 += 2
+            elif sbp <= 110: news2 += 1
+            if hr <= 40 or hr >= 131: news2 += 3
+            elif 111 <= hr <= 130: news2 += 2
+            elif (41 <= hr <= 50) or (91 <= hr <= 110): news2 += 1
+            if temp <= 35.0 or temp >= 39.1: news2 += (3 if temp <= 35.0 else 2)
+            elif 35.1 <= temp <= 36.0 or 38.1 <= temp <= 39.0: news2 += 1
+
+            payload = {
+                "t": t,
+                "timestamp": time.strftime("%H:%M:%S"),
+                "hr":   hr,
+                "spo2": spo2,
+                "rr":   rr,
+                "temp": temp,
+                "sbp":  round(sbp, 0),
+                "dbp":  round(dbp, 0),
+                "tilt_active": tilt_active,
+                "tilt_count":  tilt_count,
+                "news2_live":  news2,
+                "condition":   condition,
+            }
+            yield f"data: {json.dumps(payload)}\n\n"
+            await asyncio.sleep(1)
+            t += 1
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 # ─── Routes: analysis pipeline (SSE) ─────────────────────────────────────────
 
 @app.get("/api/analyze/{patient_id}")
@@ -325,6 +440,8 @@ async def analyze(patient_id: str):
                 "sbar": full_log.get("sbar", ""),
                 "recommended_action": full_log.get("recommended_action", ""),
                 "time_sensitivity": full_log.get("time_sensitivity", ""),
+                "escalation_level": full_log.get("escalation_level", 0),
+                "escalation_recommendation": full_log.get("escalation_recommendation", ""),
                 "log_file": log_file,
             })
         except Exception as exc:

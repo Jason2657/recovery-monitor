@@ -396,11 +396,28 @@ Skeptic confidence: {skeptic_out.get('skeptic_confidence', 'N/A')}
 Where skepticism fails: {skeptic_out.get('where_skepticism_fails', '')}
 """
 
+    from patient_data import CLINICAL_KNOWLEDGE_BASE
+    escalation_kb = CLINICAL_KNOWLEDGE_BASE.get("escalation_protocol", {})
+    condition = patient_profile.get("primary_condition", "general")
+    condition_overrides = escalation_kb.get("condition_overrides", {}).get(condition, [])
+
     system = (
         "You are the Reconciler/Judge Agent — final arbiter of clinical escalation. "
         "Weigh ALL evidence from 5 independent data streams against the Skeptic's best arguments. "
         "Key principle: convergent evidence from MULTIPLE INDEPENDENT streams cannot all be coincidental "
-        "benign explanations simultaneously. Show your work explicitly. Return valid JSON only."
+        "benign explanations simultaneously. Show your work explicitly.\n\n"
+        "ESCALATION PROTOCOL (static clinical memory — apply to every assessment):\n"
+        "LEVEL 0 (Routine): NEWS2 0-2, stable trends → standard monitoring, scheduled follow-up only.\n"
+        "LEVEL 1 (Enhanced): NEWS2 3-4 OR single mild trend → it would be appropriate for patient to "
+        "contact care team within 24-48 hours.\n"
+        "LEVEL 2 (Urgent): NEWS2 5-6 OR multiple converging trends, CHF weight >5 lbs/week, "
+        "COPD rescue inhaler escalation → it would be appropriate to notify attending physician within 2-4 hours.\n"
+        "LEVEL 3 (Emergency): NEWS2 7+, SpO2 <88%, HR >130 or <40, systolic <90, acute chest pain, "
+        "severe dyspnea → it would be appropriate to activate emergency medical services (911) immediately.\n"
+        f"CONDITION-SPECIFIC OVERRIDES for {condition.upper()}: {'; '.join(condition_overrides)}\n\n"
+        "IMPORTANT: The escalation_recommendation field must state what action 'would be appropriate' — "
+        "this system does NOT take action itself. All clinical decisions remain with the care team.\n"
+        "Return valid JSON only."
     )
     user = f"""Reconcile all evidence for {patient_profile['name']}, Day {days_post_discharge} post-{patient_profile['diagnosis']}.
 
@@ -420,6 +437,8 @@ Return JSON ONLY:
   "confidence": "low|medium|high",
   "recommended_action": "specific clinical action",
   "time_sensitivity": "immediately|within_4h|within_24h|within_48h|routine",
+  "escalation_level": <integer 0-3 matching the escalation protocol levels above>,
+  "escalation_recommendation": "Full text of what intervention would be appropriate, per escalation protocol — must include phrase 'it would be appropriate to...' and must NOT claim the AI will take action",
   "rationale": "4-6 sentence explicit reasoning chain connecting evidence to risk score"
 }}"""
 
@@ -532,6 +551,8 @@ def extract_brief(agent_id: str, result) -> dict:
             "time_sensitivity": result.get("time_sensitivity", ""),
             "rationale": result.get("rationale", ""),
             "skeptic_rebuttal": result.get("skeptic_rebuttal", ""),
+            "escalation_level": result.get("escalation_level", 0),
+            "escalation_recommendation": result.get("escalation_recommendation", ""),
         }
     if agent_id == "brief":
         return {"text": result if isinstance(result, str) else ""}
@@ -604,6 +625,8 @@ def run_full_pipeline(patient_data: dict, client, callbacks: dict = None, log_di
     full_log["sbar"] = sbar_text if isinstance(sbar_text, str) else sbar_text.get("text", "")
     full_log["recommended_action"] = reconciler_out.get("recommended_action", "")
     full_log["time_sensitivity"] = reconciler_out.get("time_sensitivity", "")
+    full_log["escalation_level"] = reconciler_out.get("escalation_level", 0)
+    full_log["escalation_recommendation"] = reconciler_out.get("escalation_recommendation", "")
 
     os.makedirs(log_dir, exist_ok=True)
     ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")

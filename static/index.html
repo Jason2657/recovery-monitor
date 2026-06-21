@@ -39,6 +39,26 @@
     50%      { box-shadow: 0 0 24px rgba(59,130,246,0.55); }
   }
 
+  /* Live monitor */
+  .live-dot { width:8px; height:8px; border-radius:50%; background:#ef4444; animation:blink-red 1s ease-in-out infinite; flex-shrink:0; }
+  @keyframes blink-red { 0%,100%{opacity:1} 50%{opacity:0.25} }
+  .tilt-active-pill { background:rgba(239,68,68,0.18); color:#f87171; border:1px solid rgba(239,68,68,0.4); animation:pulse-red 1.1s ease-in-out infinite; }
+  .tilt-idle-pill   { background:rgba(34,197,94,0.12); color:#4ade80; border:1px solid rgba(34,197,94,0.25); }
+  @keyframes pulse-red { 0%,100%{box-shadow:0 0 0 0 rgba(239,68,68,0.35)} 50%{box-shadow:0 0 0 5px rgba(239,68,68,0)} }
+  .vital-tile { background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:10px; padding:10px 14px; text-align:center; }
+  .vital-value { font-size:1.4rem; font-weight:800; line-height:1.1; }
+  .vital-label { font-size:0.65rem; font-weight:600; color:#4b5563; text-transform:uppercase; letter-spacing:0.07em; margin-top:2px; }
+  .vital-unit  { font-size:0.65rem; color:#374151; margin-left:2px; }
+
+  /* Escalation levels */
+  .esc-0 { border-color:rgba(34,197,94,0.4);  background:rgba(34,197,94,0.07); }
+  .esc-1 { border-color:rgba(234,179,8,0.4);  background:rgba(234,179,8,0.07); }
+  .esc-2 { border-color:rgba(249,115,22,0.5); background:rgba(249,115,22,0.08); }
+  .esc-3 { border-color:rgba(239,68,68,0.55); background:rgba(239,68,68,0.1); animation:pulse-escalation 2s ease-in-out infinite; }
+  @keyframes pulse-escalation { 0%,100%{box-shadow:0 0 0 0 rgba(239,68,68,0.2)} 50%{box-shadow:0 0 0 8px rgba(239,68,68,0)} }
+  .esc-icon-0 { color:#4ade80; } .esc-icon-1 { color:#facc15; } .esc-icon-2 { color:#fb923c; } .esc-icon-3 { color:#f87171; }
+  .esc-label-0 { color:#4ade80; } .esc-label-1 { color:#facc15; } .esc-label-2 { color:#fb923c; } .esc-label-3 { color:#f87171; }
+
   /* Severity badges */
   .badge-low      { background:rgba(34,197,94,0.14);  color:#4ade80; border:1px solid rgba(34,197,94,0.28); }
   .badge-medium   { background:rgba(245,158,11,0.14); color:#fbbf24; border:1px solid rgba(245,158,11,0.28); }
@@ -192,6 +212,11 @@
               class="hidden px-3 py-2 rounded-xl text-sm font-medium text-red-400 border border-red-500/25 bg-red-500/8 hover:bg-red-500/15 transition-all">
               Delete
             </button>
+            <button id="live-btn" onclick="toggleLiveMonitor()"
+              class="flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-sm transition-all"
+              style="background:rgba(239,68,68,0.12);color:#f87171;border:1px solid rgba(239,68,68,0.3)">
+              <span class="live-dot"></span> Live
+            </button>
             <button id="run-btn" onclick="runAnalysis()"
               class="px-5 py-2.5 rounded-xl font-semibold text-sm text-white transition-all"
               style="background:linear-gradient(135deg,#3b82f6,#6366f1);box-shadow:0 4px 20px rgba(99,102,241,0.35)">
@@ -205,6 +230,78 @@
       <div>
         <p class="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-2.5">7-Day Sensor Telemetry</p>
         <div id="sparkline-grid" class="grid grid-cols-2 md:grid-cols-4 gap-2.5"></div>
+      </div>
+
+      <!-- Live Monitor Panel -->
+      <div id="live-monitor" class="hidden fade-in">
+        <div class="glass rounded-2xl overflow-hidden border border-red-500/20">
+          <!-- Header -->
+          <div class="flex items-center justify-between px-5 py-3 border-b border-white/5" style="background:rgba(239,68,68,0.05)">
+            <div class="flex items-center gap-2.5">
+              <span class="live-dot"></span>
+              <span class="text-sm font-semibold text-white">Live Patient Monitor</span>
+              <span class="mono text-xs text-slate-500" id="live-timestamp">--:--:--</span>
+            </div>
+            <div class="flex items-center gap-3">
+              <span class="text-xs text-slate-500">NEWS2 Live:</span>
+              <span id="live-news2" class="mono text-sm font-bold text-slate-300">–</span>
+              <button onclick="toggleLiveMonitor()" class="text-slate-600 hover:text-slate-300 transition-colors text-lg leading-none ml-2">×</button>
+            </div>
+          </div>
+
+          <div class="p-5 space-y-4">
+            <!-- BPM rolling chart -->
+            <div>
+              <div class="flex items-center justify-between mb-2">
+                <span class="text-xs font-semibold text-slate-500 uppercase tracking-widest">Heart Rate (BPM) — 60s Rolling</span>
+                <span id="live-hr-value" class="text-2xl font-bold text-white mono">–</span>
+              </div>
+              <canvas id="live-hr-canvas" width="800" height="90"
+                style="width:100%;height:90px;border-radius:10px;background:rgba(0,0,0,0.3);display:block"></canvas>
+              <div class="flex justify-between mt-1 text-xs text-slate-700 mono">
+                <span>60s ago</span><span>30s ago</span><span>now</span>
+              </div>
+            </div>
+
+            <!-- Vital tiles row -->
+            <div class="grid grid-cols-3 md:grid-cols-6 gap-2">
+              <div class="vital-tile">
+                <div class="vital-value text-blue-400" id="lv-spo2">–</div>
+                <div class="vital-label">SpO₂ <span class="vital-unit">%</span></div>
+              </div>
+              <div class="vital-tile">
+                <div class="vital-value text-violet-400" id="lv-rr">–</div>
+                <div class="vital-label">Resp Rate <span class="vital-unit">/min</span></div>
+              </div>
+              <div class="vital-tile">
+                <div class="vital-value text-pink-400" id="lv-temp">–</div>
+                <div class="vital-label">Temp <span class="vital-unit">°C</span></div>
+              </div>
+              <div class="vital-tile">
+                <div class="vital-value text-cyan-400" id="lv-sbp">–</div>
+                <div class="vital-label">Sys BP <span class="vital-unit">mmHg</span></div>
+              </div>
+              <div class="vital-tile">
+                <div class="vital-value text-slate-400" id="lv-dbp">–</div>
+                <div class="vital-label">Dia BP <span class="vital-unit">mmHg</span></div>
+              </div>
+              <!-- Tilt sensor tile -->
+              <div class="vital-tile flex flex-col items-center justify-center gap-1.5">
+                <div id="tilt-pill" class="tilt-idle-pill text-xs font-bold px-2.5 py-1 rounded-full transition-all">● Stable</div>
+                <div class="vital-label">Tilt Sensor</div>
+                <div class="text-xs text-slate-500"><span id="tilt-count">0</span> disturbances</div>
+              </div>
+            </div>
+
+            <!-- Tilt event log -->
+            <div>
+              <p class="text-xs font-semibold text-slate-600 uppercase tracking-widest mb-1.5">Sleep Disturbance Log (tilt sensor)</p>
+              <div id="tilt-log" class="space-y-1 max-h-24 overflow-y-auto">
+                <p class="text-xs text-slate-700 italic">No disturbances recorded yet.</p>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- Self-report + TTS -->
@@ -267,6 +364,19 @@
                 <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Recommended Action</p>
                 <p id="risk-action-text" class="font-semibold"></p>
                 <p id="risk-timing-text" class="text-xs mt-0.5 text-slate-400"></p>
+              </div>
+              <!-- Escalation recommendation -->
+              <div id="escalation-box" class="hidden rounded-xl p-4 border mt-3">
+                <div class="flex items-center gap-2.5 mb-2">
+                  <span id="esc-icon" class="text-xl"></span>
+                  <div>
+                    <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider leading-none">Escalation Protocol</p>
+                    <p id="esc-label" class="text-sm font-bold mt-0.5"></p>
+                  </div>
+                  <span id="esc-level-badge" class="ml-auto text-xs font-bold px-2 py-0.5 rounded-full border"></span>
+                </div>
+                <p id="esc-text" class="text-sm leading-relaxed text-slate-300"></p>
+                <p class="text-xs text-slate-600 mt-2 italic">⚠ This system identifies what would be clinically appropriate — it does not take action. All decisions remain with the care team.</p>
               </div>
             </div>
           </div>
@@ -483,6 +593,15 @@
 
 <!-- ══════════════════════════════════════════════════════════════════════════ -->
 <script>
+// ─── Live monitor state ───────────────────────────────────────────────────────
+let liveES = null;           // EventSource for live stream
+let liveActive = false;
+const HR_WINDOW = 60;        // seconds of history on the rolling chart
+const hrBuffer = [];         // {t, hr} rolling buffer
+let tiltEvents = [];         // timestamps of tilt events
+let liveCanvas = null;
+let liveCtx = null;
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 const AGENT_META = {
   signal:      { icon:'⚡', label:'Signal',          desc:'Acute anomaly detection' },
@@ -588,6 +707,9 @@ async function selectPatient(pid) {
   document.getElementById('pipeline-section').classList.add('hidden');
   document.getElementById('risk-section').classList.add('hidden');
   document.getElementById('sbar-section').classList.add('hidden');
+  document.getElementById('escalation-box').classList.add('hidden');
+  // Stop live monitor when switching patients
+  if (liveActive) { stopLiveMonitor(); document.getElementById('live-monitor').classList.add('hidden'); }
 
   // Fill header
   document.getElementById('pt-name').textContent = selectedPatient.name;
@@ -818,6 +940,7 @@ function runAnalysis() {
     else if (d.type === 'agent_complete') setAgentComplete(d.agent_id, d.brief, d.elapsed);
     else if (d.type === 'pipeline_complete') {
       renderRisk(d); renderSbar(d.sbar);
+      renderEscalation(d.escalation_level ?? 0, d.escalation_recommendation ?? '');
       es.close(); finishRun(d);
     } else if (d.type === 'error') {
       showError(d.message); es.close(); finishRun(null);
@@ -905,6 +1028,208 @@ function copySbar() {
     const btn = document.querySelector('#sbar-section button:last-child');
     if (btn) { btn.textContent='Copied!'; btn.style.color='#4ade80'; setTimeout(()=>{btn.textContent='Copy';btn.style.color='';},2000); }
   });
+}
+
+// ─── Live monitor ─────────────────────────────────────────────────────────────
+function toggleLiveMonitor() {
+  if (!selectedPatient) return;
+  const panel = document.getElementById('live-monitor');
+  if (liveActive) {
+    stopLiveMonitor();
+    panel.classList.add('hidden');
+  } else {
+    panel.classList.remove('hidden');
+    startLiveMonitor(selectedPatient.id);
+  }
+}
+
+function startLiveMonitor(pid) {
+  if (liveES) { liveES.close(); }
+  hrBuffer.length = 0;
+  tiltEvents = [];
+  liveActive = true;
+
+  // Init canvas
+  liveCanvas = document.getElementById('live-hr-canvas');
+  liveCtx    = liveCanvas.getContext('2d');
+
+  // Set internal resolution to match display size
+  const rect = liveCanvas.getBoundingClientRect();
+  liveCanvas.width  = rect.width  * window.devicePixelRatio || 800;
+  liveCanvas.height = rect.height * window.devicePixelRatio || 90;
+
+  // Update tilt log to empty
+  document.getElementById('tilt-log').innerHTML = '<p class="text-xs text-slate-700 italic">No disturbances recorded yet.</p>';
+  document.getElementById('tilt-count').textContent = '0';
+
+  liveES = new EventSource(`/api/live/${pid}`);
+  liveES.onmessage = (e) => {
+    let d; try { d = JSON.parse(e.data); } catch { return; }
+    onLiveData(d);
+  };
+  liveES.onerror = () => { };  // silently retry; server keeps streaming
+}
+
+function stopLiveMonitor() {
+  liveActive = false;
+  if (liveES) { liveES.close(); liveES = null; }
+}
+
+function onLiveData(d) {
+  // Rolling HR buffer (keep last HR_WINDOW seconds)
+  hrBuffer.push({t: d.t, hr: d.hr});
+  if (hrBuffer.length > HR_WINDOW) hrBuffer.shift();
+
+  // Update timestamp + NEWS2
+  document.getElementById('live-timestamp').textContent = d.timestamp;
+  document.getElementById('live-news2').textContent     = d.news2_live;
+  document.getElementById('live-news2').style.color     = news2Color(d.news2_live);
+
+  // Update HR value
+  const hrEl = document.getElementById('live-hr-value');
+  hrEl.textContent  = d.hr;
+  hrEl.style.color  = hrColor(d.hr);
+
+  // Update vital tiles
+  document.getElementById('lv-spo2').textContent = d.spo2;
+  document.getElementById('lv-spo2').style.color = d.spo2 < 92 ? '#f87171' : d.spo2 < 95 ? '#fb923c' : '#60a5fa';
+  document.getElementById('lv-rr').textContent   = d.rr;
+  document.getElementById('lv-rr').style.color   = d.rr > 24 ? '#f87171' : d.rr > 20 ? '#fb923c' : '#a78bfa';
+  document.getElementById('lv-temp').textContent = d.temp.toFixed(1);
+  document.getElementById('lv-temp').style.color = d.temp > 38.5 ? '#f87171' : d.temp > 38.0 ? '#fb923c' : '#f472b6';
+  document.getElementById('lv-sbp').textContent  = d.sbp;
+  document.getElementById('lv-sbp').style.color  = d.sbp > 180 || d.sbp < 90 ? '#f87171' : '#67e8f9';
+  document.getElementById('lv-dbp').textContent  = d.dbp;
+
+  // Tilt sensor
+  const pill = document.getElementById('tilt-pill');
+  if (d.tilt_active) {
+    pill.className = 'tilt-active-pill text-xs font-bold px-2.5 py-1 rounded-full transition-all';
+    pill.textContent = '⚡ DISTURBANCE';
+    // Log new event
+    const cnt = parseInt(document.getElementById('tilt-count').textContent);
+    if (d.tilt_count > cnt) {
+      tiltEvents.unshift(d.timestamp);
+      updateTiltLog(d.tilt_count);
+    }
+  } else {
+    pill.className = 'tilt-idle-pill text-xs font-bold px-2.5 py-1 rounded-full transition-all';
+    pill.textContent = '● Stable';
+  }
+  document.getElementById('tilt-count').textContent = d.tilt_count;
+
+  // Redraw rolling chart
+  drawHrChart(d.hr);
+}
+
+function updateTiltLog(count) {
+  const log = document.getElementById('tilt-log');
+  const events = tiltEvents.slice(0, 8);
+  log.innerHTML = events.map((ts, i) =>
+    `<div class="flex items-center gap-2 text-xs py-0.5">
+      <span class="w-1.5 h-1.5 rounded-full bg-red-500 flex-shrink-0"></span>
+      <span class="text-slate-500 mono">${ts}</span>
+      <span class="text-slate-600">Sleep disturbance detected (tilt sensor)</span>
+    </div>`
+  ).join('');
+}
+
+function drawHrChart(currentHr) {
+  if (!liveCanvas || !liveCtx) return;
+  const W = liveCanvas.width, H = liveCanvas.height;
+  const ctx = liveCtx;
+  const dpr = window.devicePixelRatio || 1;
+
+  ctx.clearRect(0, 0, W, H);
+
+  if (hrBuffer.length < 2) return;
+
+  // Dynamic range: patient's typical range ±20 bpm, minimum 40-160
+  const hrs = hrBuffer.map(p => p.hr);
+  const mn = Math.min(...hrs, currentHr) - 5;
+  const mx = Math.max(...hrs, currentHr) + 5;
+
+  // Threshold zones (horizontal bands)
+  const y130 = H - ((130 - mn) / (mx - mn)) * H;
+  const y100 = H - ((100 - mn) / (mx - mn)) * H;
+  const yClamp = (v) => Math.max(2, Math.min(H-2, H - ((v - mn) / (mx - mn)) * H));
+
+  // Zone fills
+  ctx.fillStyle = 'rgba(239,68,68,0.06)';
+  ctx.fillRect(0, 0, W, Math.max(0, y130));
+  ctx.fillStyle = 'rgba(245,158,11,0.05)';
+  ctx.fillRect(0, Math.max(0, y130), W, Math.max(0, y100 - y130));
+
+  // Grid lines
+  ctx.strokeStyle = 'rgba(255,255,255,0.05)'; ctx.lineWidth = 1 * dpr;
+  [Math.round(mn/10)*10, Math.round((mn+mx)/20)*10, Math.round(mx/10)*10].forEach(v => {
+    const y = yClamp(v);
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+    ctx.fillStyle = 'rgba(107,114,128,0.6)'; ctx.font = `${9*dpr}px Inter,sans-serif`;
+    ctx.fillText(v, 4, y - 2);
+  });
+
+  // Threshold labels
+  ctx.fillStyle = 'rgba(239,68,68,0.6)'; ctx.font = `${8*dpr}px Inter,sans-serif`;
+  ctx.fillText('130', W - 25*dpr, Math.max(8, y130 - 2));
+
+  // Line gradient based on current HR
+  const lineColor = currentHr > 130 ? '#ef4444' : currentHr > 100 ? '#f97316' : '#60a5fa';
+  ctx.strokeStyle = lineColor; ctx.lineWidth = 2 * dpr;
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+
+  // Glow
+  ctx.shadowColor = lineColor; ctx.shadowBlur = 6 * dpr;
+  ctx.beginPath();
+  hrBuffer.forEach((p, i) => {
+    const x = (i / (HR_WINDOW - 1)) * W;
+    const y = yClamp(p.hr);
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  // Current value dot
+  const lastX = ((hrBuffer.length - 1) / (HR_WINDOW - 1)) * W;
+  const lastY = yClamp(currentHr);
+  ctx.fillStyle = lineColor;
+  ctx.beginPath(); ctx.arc(lastX, lastY, 4 * dpr, 0, Math.PI * 2); ctx.fill();
+}
+
+function hrColor(hr) {
+  if (hr > 130 || hr < 40) return '#f87171';
+  if (hr > 110 || hr < 50) return '#fb923c';
+  return '#e2e8f0';
+}
+
+function news2Color(n) {
+  if (n >= 7) return '#ef4444';
+  if (n >= 5) return '#f97316';
+  if (n >= 3) return '#f59e0b';
+  return '#4ade80';
+}
+
+// ─── Escalation display ───────────────────────────────────────────────────────
+const ESC_META = [
+  { icon:'🟢', label:'Level 0 — Routine Monitoring',         badge:'ROUTINE',   badge_cls:'text-green-400 border-green-500/30 bg-green-500/10' },
+  { icon:'🟡', label:'Level 1 — Enhanced Monitoring',        badge:'ENHANCED',  badge_cls:'text-yellow-400 border-yellow-500/30 bg-yellow-500/10' },
+  { icon:'🟠', label:'Level 2 — Urgent Physician Contact',   badge:'URGENT',    badge_cls:'text-orange-400 border-orange-500/30 bg-orange-500/10' },
+  { icon:'🔴', label:'Level 3 — Emergency Services',         badge:'EMERGENCY', badge_cls:'text-red-400 border-red-500/30 bg-red-500/10' },
+];
+
+function renderEscalation(level, text) {
+  if (!text) return;
+  const box  = document.getElementById('escalation-box');
+  const meta = ESC_META[level] ?? ESC_META[0];
+  box.className = `rounded-xl p-4 border mt-3 esc-${level}`;
+  box.classList.remove('hidden');
+  document.getElementById('esc-icon').textContent  = meta.icon;
+  document.getElementById('esc-label').textContent = meta.label;
+  document.getElementById('esc-label').className   = `text-sm font-bold mt-0.5 esc-label-${level}`;
+  const badge = document.getElementById('esc-level-badge');
+  badge.textContent = meta.badge;
+  badge.className   = `ml-auto text-xs font-bold px-2 py-0.5 rounded-full border ${meta.badge_cls}`;
+  document.getElementById('esc-text').textContent  = text;
 }
 
 // ─── NEW PATIENT WIZARD ───────────────────────────────────────────────────────

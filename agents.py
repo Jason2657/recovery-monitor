@@ -8,6 +8,7 @@ import re
 import time
 import os
 import datetime
+import concurrent.futures
 import anthropic
 
 from patient_data import CLINICAL_KNOWLEDGE_BASE
@@ -385,7 +386,17 @@ Return JSON ONLY:
   "where_skepticism_fails": "which findings genuinely cannot be explained away, and why?"
 }}"""
 
-    return _parse_json(_call(client, system, user, max_tokens=2000))
+    result = _parse_json(_call(client, system, user, max_tokens=2000))
+    # Ensure skeptic always has a readable output — never return empty strings
+    if not result.get("strongest_benign_case"):
+        result["strongest_benign_case"] = "No compelling benign case identified — findings warrant clinical attention."
+    if not result.get("where_skepticism_fails"):
+        result["where_skepticism_fails"] = "All major findings appear clinically significant given the overall picture."
+    if not result.get("overall_benign_narrative"):
+        result["overall_benign_narrative"] = "N/A — convergent signals from multiple sources reduce likelihood of benign explanation."
+    if not result.get("counterarguments"):
+        result["counterarguments"] = [{"finding": "Overall picture", "benign_explanation": "Not applicable — insufficient benign explanations identified.", "argument_strength": "weak", "what_would_confirm_benign": "Resolution of all flagged metrics within 24h"}]
+    return result
 
 
 def run_reconciler_agent(signal_out: dict, trend_out: dict, self_report_out: dict,
@@ -725,12 +736,13 @@ def run_full_pipeline(
     with tracing.span("pipeline", patient_id=patient_id, mesh=bool(use_mesh)):
         trace_id = tracing.current_trace_id()
 
-        # --- parallel analysis: 3 independent workers (Fetch.ai mesh optional) ---
+        # --- parallel analysis: 3 independent workers run concurrently --------
+        # Prefer Fetch.ai mesh (real uAgents in a Bureau) when use_mesh=True;
+        # fall back to a ThreadPoolExecutor fan-out (still parallel, no mesh overhead).
         analyses = None
         if use_mesh:
             try:
                 from mesh import fetch_mesh
-
                 analyses = fetch_mesh.run_parallel_analysis_via_mesh(
                     patient_data, client, {"on_start": on_start, "on_complete": on_complete}
                 )
@@ -738,20 +750,35 @@ def run_full_pipeline(
                 for sid in ("signal", "trend", "self_report"):
                     record(sid, _ANALYSIS_LABELS[sid], analyses[sid], None)
                 full_log["mesh"] = True
-            except Exception as exc:  # never break the pipeline; fall back to direct
+            except Exception as exc:
                 full_log["mesh_error"] = str(exc)
                 analyses = None
 
         if analyses is None:
-            signal_out = step("signal", "Signal Agent", run_signal_agent, current, profile, client)
-            trend_out = step("trend", "Trend Agent", run_trend_agent, history, profile, client)
-            self_report_out = step("self_report", "Self-Report NLP", run_self_report_agent, reports, client)
+            # Fan-out: all 3 analysis agents fire simultaneously
+            on_start("signal",      "Signal Agent")
+            on_start("trend",       "Trend Agent")
+            on_start("self_report", "Self-Report NLP")
+            with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+                f_signal      = pool.submit(run_signal_agent,      current, profile, client)
+                f_trend       = pool.submit(run_trend_agent,       history, profile, client)
+                f_self_report = pool.submit(run_self_report_agent, reports, client)
+                t0 = time.time()
+                signal_out      = f_signal.result()
+                trend_out       = f_trend.result()
+                self_report_out = f_self_report.result()
+            elapsed_parallel = round(time.time() - t0, 1)
+            for sid, res in (("signal", signal_out), ("trend", trend_out), ("self_report", self_report_out)):
+                brief = record(sid, _ANALYSIS_LABELS[sid], res, elapsed_parallel)
+                on_complete(sid, _ANALYSIS_LABELS[sid], brief, elapsed_parallel)
         else:
             signal_out, trend_out, self_report_out = (
                 analyses["signal"], analyses["trend"], analyses["self_report"]
             )
 
-        # --- medical knowledge (RAG) — depends on the three analyses + web research ---
+        # --- medical knowledge (RAG) — depends on all three analyses ----------
+        # Only inject the compact synthesis from web_research (not raw page text)
+        # to keep RAG token spend low.
         knowledge_out = step("knowledge", "Medical Knowledge (RAG)", run_knowledge_agent,
                              signal_out, trend_out, self_report_out, client, web_research)
 

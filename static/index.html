@@ -150,6 +150,35 @@
     50% { box-shadow:0 0 0 6px rgba(239,68,68,0); }
   }
   .tts-btn { transition:all 0.18s; background:rgba(16,185,129,0.12); color:#34d399; border:1px solid rgba(16,185,129,0.25); }
+
+  /* Collapsible research sections */
+  details.res-section > summary {
+    list-style:none; cursor:pointer; display:flex; align-items:center; justify-content:space-between;
+    padding:7px 0; user-select:none;
+  }
+  details.res-section > summary::-webkit-details-marker { display:none; }
+  details.res-section > summary .chev {
+    font-size:0.7rem; color:#4b5563; transition:transform 0.2s; flex-shrink:0;
+  }
+  details.res-section[open] > summary .chev { transform:rotate(90deg); }
+  details.res-section > summary:hover .chev { color:#94a3b8; }
+
+  /* Fetch.ai badge */
+  .fetch-badge {
+    display:inline-flex; align-items:center; gap:5px;
+    font-size:0.65rem; font-weight:700; letter-spacing:0.06em; text-transform:uppercase;
+    padding:2px 8px; border-radius:20px;
+    background:rgba(14,165,233,0.12); color:#38bdf8; border:1px solid rgba(14,165,233,0.3);
+  }
+  .fetch-badge .dot { width:5px; height:5px; border-radius:50%; background:#38bdf8; animation:blink-red 1.4s ease-in-out infinite; }
+
+  /* Tilt unstable state */
+  .tilt-unstable-pill { background:rgba(239,68,68,0.18); color:#f87171; border:1px solid rgba(239,68,68,0.4); animation:pulse-red 1.1s ease-in-out infinite; }
+
+  /* Arduino indicator */
+  .arduino-badge { font-size:0.62rem; font-weight:600; padding:2px 7px; border-radius:12px;
+    background:rgba(52,211,153,0.12); color:#34d399; border:1px solid rgba(52,211,153,0.25); }
+  .arduino-badge.sim { background:rgba(107,114,128,0.12); color:#6b7280; border-color:rgba(107,114,128,0.2); }
   .tts-btn:hover { background:rgba(16,185,129,0.22); }
   .tts-btn:disabled { opacity:0.4; cursor:not-allowed; }
 
@@ -243,11 +272,11 @@
               <span id="pt-custom-badge" class="hidden text-xs px-2 py-0.5 rounded-full border border-indigo-500/30 bg-indigo-500/10 text-indigo-400">Custom</span>
             </div>
             <p id="pt-dx" class="text-sm text-slate-400 mb-2"></p>
-            <div class="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-slate-500">
+            <div class="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-slate-500 mb-1">
               <span id="pt-age"></span>
               <span id="pt-dc"></span>
-              <span id="pt-meds" class="text-slate-600 max-w-sm truncate"></span>
             </div>
+            <p id="pt-meds" class="text-xs text-slate-600 leading-relaxed"></p>
           </div>
           <div class="flex items-center gap-2 flex-shrink-0">
             <button id="delete-btn" onclick="deleteCurrentPatient()"
@@ -288,6 +317,7 @@
               <span class="live-dot"></span>
               <span class="text-sm font-semibold text-white">Live Patient Monitor</span>
               <span class="mono text-xs text-slate-500" id="live-timestamp">--:--:--</span>
+              <span id="arduino-badge" class="arduino-badge sim">⚡ Simulated</span>
             </div>
             <div class="flex items-center gap-3">
               <span class="text-xs text-slate-500">NEWS2 Live:</span>
@@ -335,7 +365,7 @@
               <!-- Tilt sensor tile -->
               <div class="vital-tile flex flex-col items-center justify-center gap-1.5">
                 <div id="tilt-pill" class="tilt-idle-pill text-xs font-bold px-2.5 py-1 rounded-full transition-all">● Stable</div>
-                <div class="vital-label">Tilt Sensor</div>
+                <div class="vital-label">Tilt / Motion</div>
                 <div class="text-xs text-slate-500"><span id="tilt-count">0</span> disturbances</div>
               </div>
             </div>
@@ -380,49 +410,58 @@
           <div id="research-results" class="hidden px-5 pb-5 space-y-5">
 
             <!-- Diagnosis context -->
-            <div class="rounded-xl p-4 border border-violet-500/15" style="background:rgba(139,92,246,0.06)">
-              <p class="text-xs font-semibold text-violet-400 uppercase tracking-widest mb-2">Diagnosis Overview</p>
-              <p id="res-context" class="text-sm text-slate-300 leading-relaxed"></p>
-              <p id="res-surgery-reason" class="text-sm text-slate-400 leading-relaxed mt-2 italic"></p>
+            <div class="rounded-lg p-3 border border-violet-500/15" style="background:rgba(139,92,246,0.06)">
+              <p class="text-xs font-semibold text-violet-400 uppercase tracking-widest mb-1.5">Diagnosis Overview</p>
+              <p id="res-context" class="text-xs text-slate-300 leading-relaxed"></p>
+              <p id="res-surgery-reason" class="text-xs text-slate-400 leading-relaxed mt-1.5 italic"></p>
             </div>
 
-            <!-- Recovery timeline -->
-            <div>
-              <p class="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-2.5">Evidence-Based Recovery Timeline</p>
-              <div class="grid grid-cols-3 gap-2.5" id="res-timeline"></div>
+            <!-- Recovery timeline (collapsible) -->
+            <details class="res-section">
+              <summary>
+                <span class="text-xs font-semibold text-slate-500 uppercase tracking-widest">Evidence-Based Recovery Timeline</span>
+                <span class="chev">▶</span>
+              </summary>
+              <div class="grid grid-cols-3 gap-2 mt-2" id="res-timeline"></div>
+            </details>
+
+            <!-- Complications (collapsible) -->
+            <details class="res-section">
+              <summary>
+                <span class="text-xs font-semibold text-slate-500 uppercase tracking-widest">Common Post-Discharge Complications</span>
+                <span class="chev">▶</span>
+              </summary>
+              <div id="res-complications" class="space-y-1.5 mt-2"></div>
+            </details>
+
+            <!-- Red flags (always visible — actionable) -->
+            <div class="rounded-lg p-3 border border-red-500/20" style="background:rgba(239,68,68,0.05)">
+              <p class="text-xs font-semibold text-red-400 uppercase tracking-widest mb-1.5">🚨 Red Flags</p>
+              <ul id="res-redflags" class="space-y-1"></ul>
             </div>
 
-            <!-- Complications -->
-            <div>
-              <p class="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-2.5">Common Post-Discharge Complications</p>
-              <div id="res-complications" class="space-y-2"></div>
-            </div>
-
-            <!-- Red flags -->
-            <div class="rounded-xl p-4 border border-red-500/20" style="background:rgba(239,68,68,0.05)">
-              <p class="text-xs font-semibold text-red-400 uppercase tracking-widest mb-2">🚨 Red Flags From Literature</p>
-              <ul id="res-redflags" class="space-y-1.5"></ul>
-            </div>
-
-            <!-- Evidence highlights -->
-            <div>
-              <p class="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-2.5">Evidence Highlights</p>
-              <div id="res-evidence" class="space-y-2"></div>
-            </div>
+            <!-- Evidence highlights (collapsible) -->
+            <details class="res-section">
+              <summary>
+                <span class="text-xs font-semibold text-slate-500 uppercase tracking-widest">Evidence Highlights</span>
+                <span class="chev">▶</span>
+              </summary>
+              <div id="res-evidence" class="space-y-1.5 mt-2"></div>
+            </details>
 
             <!-- Tailored narrative -->
-            <div class="rounded-xl p-4 border border-blue-500/15" style="background:rgba(59,130,246,0.05)">
-              <div class="flex items-center justify-between mb-2">
+            <div class="rounded-lg p-3 border border-blue-500/15" style="background:rgba(59,130,246,0.05)">
+              <div class="flex items-center justify-between mb-1.5">
                 <p class="text-xs font-semibold text-blue-400 uppercase tracking-widest">Patient-Specific Risk Narrative</p>
-                <button onclick="playResearchNarrative()" class="tts-btn flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium">🔊 Play</button>
+                <button onclick="playResearchNarrative()" class="tts-btn flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-medium">🔊</button>
               </div>
-              <div id="res-narrative" class="text-sm text-slate-300 leading-relaxed space-y-2"></div>
+              <div id="res-narrative" class="text-xs text-slate-300 leading-relaxed space-y-1.5"></div>
             </div>
 
             <!-- Sources -->
             <div>
-              <p class="text-xs font-semibold text-slate-600 uppercase tracking-widest mb-2">Sources Fetched</p>
-              <div id="res-sources" class="flex flex-wrap gap-2"></div>
+              <p class="text-xs font-semibold text-slate-700 uppercase tracking-widest mb-1.5">Sources</p>
+              <div id="res-sources" class="flex flex-wrap gap-1.5"></div>
             </div>
 
           </div>
@@ -450,34 +489,40 @@
 
       <!-- Pipeline -->
       <div id="pipeline-section" class="hidden">
-        <div class="flex items-center justify-between mb-3">
-          <p class="text-xs font-semibold text-slate-500 uppercase tracking-widest">Analysis Pipeline</p>
+        <div class="flex items-center justify-between mb-2">
+          <div class="flex items-center gap-2">
+            <p class="text-xs font-semibold text-slate-500 uppercase tracking-widest">Analysis Pipeline</p>
+            <span class="fetch-badge"><span class="dot"></span>Fetch.ai uAgents</span>
+          </div>
           <div class="flex items-center gap-2">
             <span id="pipeline-progress-text" class="text-xs text-slate-500">0 / 7 agents</span>
-            <div class="w-28 h-1.5 rounded-full bg-white/5 overflow-hidden">
+            <div class="w-24 h-1 rounded-full bg-white/5 overflow-hidden">
               <div id="pipeline-progress-bar" class="h-full rounded-full progress-fill bg-blue-500" style="width:0%"></div>
             </div>
           </div>
         </div>
 
-        <!-- Row 1 -->
-        <div class="flex gap-2 mb-1.5">
-          <div id="card-signal"      class="agent-card glass rounded-xl p-3 flex-1 state-idle"></div>
-          <div class="pipe-arrow">→</div>
-          <div id="card-trend"       class="agent-card glass rounded-xl p-3 flex-1 state-idle"></div>
-          <div class="pipe-arrow">→</div>
-          <div id="card-self_report" class="agent-card glass rounded-xl p-3 flex-1 state-idle"></div>
-          <div class="pipe-arrow">→</div>
-          <div id="card-knowledge"   class="agent-card glass rounded-xl p-3 flex-1 state-idle"></div>
+        <!-- Parallel tier label -->
+        <p class="text-xs text-slate-700 uppercase tracking-widest mb-1.5 ml-0.5">⚡ Parallel</p>
+        <!-- 3 parallel agents side-by-side, smaller -->
+        <div class="grid grid-cols-3 gap-1.5 mb-1.5">
+          <div id="card-signal"      class="agent-card glass rounded-lg p-2 state-idle"></div>
+          <div id="card-trend"       class="agent-card glass rounded-lg p-2 state-idle"></div>
+          <div id="card-self_report" class="agent-card glass rounded-lg p-2 state-idle"></div>
         </div>
-        <div class="flex justify-end mb-1.5 pr-3"><span class="text-slate-700 text-sm">↓</span></div>
-        <!-- Row 2 -->
-        <div class="flex gap-2 justify-end mb-5">
-          <div id="card-skeptic"    class="agent-card glass rounded-xl p-3 flex-1 state-idle"></div>
-          <div class="pipe-arrow">→</div>
-          <div id="card-reconciler" class="agent-card glass rounded-xl p-3 flex-1 state-idle"></div>
-          <div class="pipe-arrow">→</div>
-          <div id="card-brief"      class="agent-card glass rounded-xl p-3 flex-1 state-idle"></div>
+        <div class="flex items-center gap-1 mb-1.5 ml-1">
+          <div class="h-px flex-1 bg-white/5"></div>
+          <span class="text-slate-700 text-xs">↓ all findings pass to RAG</span>
+          <div class="h-px flex-1 bg-white/5"></div>
+        </div>
+
+        <!-- Sequential tier: RAG → Skeptic → Judge → Brief (stacked) -->
+        <p class="text-xs text-slate-700 uppercase tracking-widest mb-1.5 ml-0.5">🔗 Sequential</p>
+        <div class="space-y-1.5 mb-4">
+          <div id="card-knowledge"   class="agent-card glass rounded-lg p-2 state-idle"></div>
+          <div id="card-skeptic"     class="agent-card glass rounded-lg p-2 state-idle"></div>
+          <div id="card-reconciler"  class="agent-card glass rounded-lg p-2 state-idle"></div>
+          <div id="card-brief"       class="agent-card glass rounded-lg p-2 state-idle"></div>
         </div>
 
         <!-- Risk gauge -->
@@ -1148,17 +1193,21 @@ async function recordSelfReport() {
 }
 
 // ─── Agent cards ──────────────────────────────────────────────────────────────
+const CARD_CLASS_BASE = 'agent-card glass rounded-lg p-2 state-idle';
+
+function _cardIdleHTML(meta) {
+  return `<div class="flex items-center gap-1.5">
+    <span class="text-sm">${meta.icon}</span>
+    <span class="text-xs font-semibold text-slate-400">${meta.label}</span>
+    <span class="text-xs text-slate-700 ml-auto">Waiting…</span>
+  </div>`;
+}
+
 function initAgentCards() {
   Object.entries(AGENT_META).forEach(([id, meta]) => {
     const card = document.getElementById(`card-${id}`);
     if (!card) return;
-    card.innerHTML = `
-      <div class="flex items-center gap-2 mb-1.5">
-        <span class="text-base">${meta.icon}</span>
-        <span class="text-xs font-semibold text-slate-300">${meta.label}</span>
-      </div>
-      <p class="text-xs text-slate-600">${meta.desc}</p>
-      <div class="agent-status mt-2 text-xs text-slate-600"></div>`;
+    card.innerHTML = _cardIdleHTML(meta);
   });
 }
 
@@ -1167,71 +1216,70 @@ function resetPipeline() {
   Object.entries(AGENT_META).forEach(([id, meta]) => {
     const card = document.getElementById(`card-${id}`);
     if (!card) return;
-    card.className = 'agent-card glass rounded-xl p-3 flex-1 state-idle';
-    card.innerHTML = `
-      <div class="flex items-center gap-2 mb-1.5">
-        <span class="text-base">${meta.icon}</span>
-        <span class="text-xs font-semibold text-slate-300">${meta.label}</span>
-      </div>
-      <p class="text-xs text-slate-600">${meta.desc}</p>
-      <div class="agent-status mt-2 text-xs text-slate-600">Waiting…</div>`;
+    card.className = CARD_CLASS_BASE;
+    card.innerHTML = _cardIdleHTML(meta);
   });
 }
 
 function setAgentRunning(id) {
   const card = document.getElementById(`card-${id}`);
   if (!card) return;
-  card.className = 'agent-card glass rounded-xl p-3 flex-1 state-running';
-  card.querySelector('.agent-status').innerHTML = '<span class="text-blue-400 animate-pulse">● Analyzing…</span>';
+  const meta = AGENT_META[id];
+  card.className = 'agent-card glass rounded-lg p-2 state-running';
+  card.innerHTML = `<div class="flex items-center gap-1.5">
+    <span class="text-sm">${meta.icon}</span>
+    <span class="text-xs font-semibold text-slate-300">${meta.label}</span>
+    <span class="text-xs text-blue-400 animate-pulse ml-auto">● Analyzing…</span>
+  </div>`;
 }
 
 function setAgentComplete(id, brief, elapsed) {
   const card = document.getElementById(`card-${id}`);
   if (!card) return;
   const meta = AGENT_META[id];
-  const sev = brief.severity || brief.risk_level || 'unknown';
-  card.className = `agent-card glass rounded-xl p-3 flex-1 state-done-${sev}`;
-  const color = SEV_COLORS[sev] || '#6b7280';
-  let content = '';
+  const rawSev = brief.severity || brief.risk_level || '';
+  // Never show "unknown" — map to N/A visually
+  const sev = rawSev && rawSev !== 'unknown' ? rawSev : 'na';
+  const displaySev = sev === 'na' ? 'N/A' : sev.toUpperCase();
+  card.className = `agent-card glass rounded-lg p-2 state-done-${sev === 'na' ? 'unknown' : sev}`;
+  const color = SEV_COLORS[rawSev] || '#6b7280';
+  let detail = '';
 
   if (id === 'signal') {
-    const alerts = (brief.alerts||[]).slice(0,2);
-    content = `<span style="color:${color}" class="font-bold text-sm">NEWS2: ${brief.news2_score??'?'}/15</span>
-      <span class="text-slate-500 ml-1 text-xs">${brief.news2_risk??''}</span>
-      ${alerts.map(a=>`<p class="text-xs truncate mt-0.5" style="color:#fb923c">⚠ ${esc(a)}</p>`).join('')}`;
+    const n2 = brief.news2_score ?? '?';
+    const alerts = (brief.alerts||[]).slice(0,1);
+    detail = `NEWS2 <strong style="color:${color}">${n2}/15</strong> ${brief.news2_risk||''}
+      ${alerts.map(a=>`· <span style="color:#fb923c">${esc(a)}</span>`).join('')}`;
   } else if (id === 'trend') {
-    content = (brief.concerning_trends||[]).slice(0,2).map(t=>
-      `<p class="text-xs truncate mb-0.5" style="color:#fb923c">📈 ${esc(t)}</p>`).join('');
+    const t = (brief.concerning_trends||[])[0] || 'No concerning trends';
+    detail = `<span style="color:#fb923c">📈 ${esc(t)}</span>`;
   } else if (id === 'self_report') {
-    const traj = (brief.trajectory||'').replace('_',' ').toUpperCase();
-    const flag = (brief.red_flags||[])[0]||'';
-    content = `<span class="text-xs font-medium" style="color:${color}">${traj}</span>
-      ${flag?`<p class="text-xs italic text-slate-400 mt-1 truncate">"${esc(flag)}"</p>`:''}`;
+    const traj = (brief.trajectory||'N/A').replace('_',' ');
+    const flag = (brief.red_flags||[])[0];
+    detail = `<span style="color:${color}">${traj}</span>${flag ? ` · "<em class="text-slate-500">${esc(flag.substring(0,50))}</em>"` : ''}`;
   } else if (id === 'knowledge') {
-    content = (brief.triggered||[]).slice(0,2).map(t=>
-      `<p class="text-xs truncate mb-0.5" style="color:#f87171">✓ ${esc(t)}</p>`).join('');
+    const t = (brief.triggered||[])[0] || 'No red flags triggered';
+    detail = `<span style="color:#f87171">✓ ${esc(t)}</span>`;
   } else if (id === 'skeptic') {
-    const bc = brief.strongest_case||'';
-    content = `<p class="text-xs text-slate-400 italic truncate">"${esc(bc.substring(0,80))}…"</p>
-      <p class="text-xs mt-1 text-yellow-500/70">Fails: ${esc((brief.where_fails||'').substring(0,60))}…</p>`;
+    const bc = (brief.strongest_case||'No benign case identified').substring(0,90);
+    detail = `<em class="text-slate-500">"${esc(bc)}"</em>`;
   } else if (id === 'reconciler') {
-    const sc = brief.risk_score??0;
-    content = `<p class="font-bold" style="color:${color};font-size:1.4rem;line-height:1.1">${sc}<span class="text-xs font-normal text-slate-500">/100</span></p>
-      ${(brief.primary_drivers||[]).slice(0,1).map(d=>`<p class="text-xs truncate mt-0.5 text-slate-400">${esc(d)}</p>`).join('')}`;
+    const sc = brief.risk_score ?? 'N/A';
+    const driver = (brief.primary_drivers||[])[0] || '';
+    detail = `Risk <strong style="color:${color};font-size:1.05rem">${sc}/100</strong>${driver ? ` · ${esc(driver.substring(0,50))}` : ''}`;
   } else if (id === 'brief') {
-    content = `<p class="text-xs text-slate-400">SBAR ready ↓</p>`;
+    detail = `<span class="text-slate-400">SBAR ready ↓</span>`;
   }
 
+  const elapsedStr = elapsed != null ? `${elapsed}s` : '';
   card.innerHTML = `
-    <div class="flex items-center justify-between mb-1.5">
-      <div class="flex items-center gap-1.5">
-        <span class="text-base">${meta.icon}</span>
-        <span class="text-xs font-semibold text-slate-200">${meta.label}</span>
-      </div>
-      <span class="text-xs px-1.5 py-0.5 rounded-full font-semibold badge-${sev}">${sev}</span>
+    <div class="flex items-center gap-1.5 flex-wrap">
+      <span class="text-sm">${meta.icon}</span>
+      <span class="text-xs font-semibold text-slate-200">${meta.label}</span>
+      <span class="text-xs px-1.5 py-0.5 rounded-full font-semibold badge-${sev === 'na' ? 'unknown' : sev} ml-auto">${displaySev}</span>
     </div>
-    <div class="agent-status">${content}</div>
-    <div class="mt-1.5 text-xs text-slate-600">${elapsed}s</div>`;
+    <div class="text-xs mt-1 leading-relaxed text-slate-400">${detail}</div>
+    ${elapsedStr ? `<div class="text-xs text-slate-700 mt-0.5">${elapsedStr}</div>` : ''}`;
 
   agentsDone++;
   updateProgress(agentsDone);
@@ -1593,12 +1641,11 @@ function onLiveData(d) {
   document.getElementById('lv-sbp').style.color  = d.sbp > 180 || d.sbp < 90 ? '#f87171' : '#67e8f9';
   document.getElementById('lv-dbp').textContent  = d.dbp;
 
-  // Tilt sensor
+  // Tilt / motion sensor
   const pill = document.getElementById('tilt-pill');
   if (d.tilt_active) {
     pill.className = 'tilt-active-pill text-xs font-bold px-2.5 py-1 rounded-full transition-all';
-    pill.textContent = '⚡ DISTURBANCE';
-    // Log new event
+    pill.textContent = '⚡ Unstable';
     const cnt = parseInt(document.getElementById('tilt-count').textContent);
     if (d.tilt_count > cnt) {
       tiltEvents.unshift(d.timestamp);
@@ -1609,6 +1656,18 @@ function onLiveData(d) {
     pill.textContent = '● Stable';
   }
   document.getElementById('tilt-count').textContent = d.tilt_count;
+
+  // Arduino vs simulation badge
+  const ab = document.getElementById('arduino-badge');
+  if (ab) {
+    if (d.arduino_connected) {
+      ab.className = 'arduino-badge';
+      ab.textContent = '🔌 Arduino';
+    } else {
+      ab.className = 'arduino-badge sim';
+      ab.textContent = '⚡ Simulated';
+    }
+  }
 
   // Redraw rolling chart
   drawHrChart(d.hr);

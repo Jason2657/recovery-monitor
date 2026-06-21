@@ -27,6 +27,50 @@ load_dotenv()
 
 app = FastAPI(title="PostCare AI Monitor")
 
+# ─── Arduino serial reader (optional — degrades gracefully if not connected) ──
+_arduino_state: dict = {"tilt": 0, "light": 0, "connected": False}
+
+def _arduino_reader():
+    """Background thread: read tilt/light values from Arduino over serial."""
+    try:
+        import serial
+        import serial.tools.list_ports
+
+        SERIAL_PORT = "/dev/cu.usbmodem101"
+        BAUD_RATE   = 9600
+
+        # Auto-detect if the hardcoded port isn't present
+        available = [p.device for p in serial.tools.list_ports.comports()]
+        if SERIAL_PORT not in available:
+            for p in available:
+                if "usbmodem" in p or "usbserial" in p or "ACM" in p:
+                    SERIAL_PORT = p
+                    break
+            else:
+                return  # no Arduino-like port found
+
+        ser = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=1)
+        time.sleep(2)
+        ser.reset_input_buffer()
+        _arduino_state["connected"] = True
+
+        while True:
+            raw = ser.readline().decode("utf-8", errors="ignore").strip()
+            if not raw:
+                continue
+            parts = raw.split(",")
+            if len(parts) != 2:
+                continue
+            try:
+                _arduino_state["tilt"]  = int(parts[0])
+                _arduino_state["light"] = int(parts[1])
+            except ValueError:
+                pass
+    except Exception:
+        _arduino_state["connected"] = False
+
+threading.Thread(target=_arduino_reader, daemon=True).start()
+
 if os.path.isdir("static"):
     app.mount("/static", StaticFiles(directory="static"), name="static")
 
@@ -117,6 +161,7 @@ async def status():
         "deepgram_key_set": bool(dg_key),
         "browserbase_key_set": bool(os.environ.get("BROWSERBASE_API_KEY", "")),
         "model": "claude-opus-4-8",
+        "arduino_connected": _arduino_state["connected"],
     })
 
 
@@ -321,22 +366,23 @@ async def live_stream(patient_id: str):
     base_dbp   = float(latest.get("diastolic_bp",        80))
     sleep_ints = int(latest.get("sleep_interruptions",   2))
 
-    # Tilt sensor state machine
+    # Tilt sensor state machine (simulation fallback)
     tilt_active   = False
     tilt_count    = 0
     tilt_cooldown = 0
     tilt_timer    = 0
+    _prev_arduino_tilt = 0   # track rising edge from Arduino
 
     # HR drift — subtle slow oscillation to simulate activity/rest cycles
     hr_drift = 0.0
 
     async def generate():
-        nonlocal tilt_active, tilt_count, tilt_cooldown, tilt_timer, hr_drift
+        nonlocal tilt_active, tilt_count, tilt_cooldown, tilt_timer, hr_drift, _prev_arduino_tilt
         t = 0
         while True:
             # Cardiac variability: sine at ~0.1 Hz + Gaussian noise
             hr_drift += random.gauss(0, 0.08)
-            hr_drift  = max(-8, min(8, hr_drift))   # bounded drift
+            hr_drift  = max(-8, min(8, hr_drift))
             hr = base_hr + hr_drift + 3.0 * math.sin(t * 0.07) + random.gauss(0, 1.2)
             hr = round(max(38, min(200, hr)), 1)
 
@@ -352,20 +398,28 @@ async def live_stream(patient_id: str):
             sbp = base_sbp + random.gauss(0, 2.5)
             dbp = base_dbp + random.gauss(0, 1.5)
 
-            # Tilt / sleep-disturbance sensor
-            tilt_cooldown = max(0, tilt_cooldown - 1)
-            if not tilt_active and tilt_cooldown == 0:
-                # Probability per second derived from expected interruptions per night (8h)
-                prob_per_sec = sleep_ints / (8 * 3600)
-                if random.random() < prob_per_sec * 20:   # ×20 to make demo visible
-                    tilt_active = True
+            # ── Tilt sensor: prefer real Arduino, fall back to simulation ──
+            if _arduino_state["connected"]:
+                cur_tilt = _arduino_state["tilt"]
+                # Rising edge (0→1): new disturbance event
+                if cur_tilt == 1 and _prev_arduino_tilt == 0:
                     tilt_count += 1
-                    tilt_timer = random.randint(4, 18)
-            elif tilt_active:
-                tilt_timer -= 1
-                if tilt_timer <= 0:
-                    tilt_active = False
-                    tilt_cooldown = random.randint(45, 180)
+                tilt_active = (cur_tilt == 1)
+                _prev_arduino_tilt = cur_tilt
+            else:
+                # Simulation: probability-based tilt events
+                tilt_cooldown = max(0, tilt_cooldown - 1)
+                if not tilt_active and tilt_cooldown == 0:
+                    prob_per_sec = sleep_ints / (8 * 3600)
+                    if random.random() < prob_per_sec * 20:
+                        tilt_active = True
+                        tilt_count += 1
+                        tilt_timer = random.randint(4, 18)
+                elif tilt_active:
+                    tilt_timer -= 1
+                    if tilt_timer <= 0:
+                        tilt_active = False
+                        tilt_cooldown = random.randint(45, 180)
 
             # NEWS2 quick score for live display
             news2 = 0
@@ -392,10 +446,11 @@ async def live_stream(patient_id: str):
                 "temp": temp,
                 "sbp":  round(sbp, 0),
                 "dbp":  round(dbp, 0),
-                "tilt_active": tilt_active,
-                "tilt_count":  tilt_count,
-                "news2_live":  news2,
-                "condition":   condition,
+                "tilt_active":      tilt_active,
+                "tilt_count":       tilt_count,
+                "news2_live":       news2,
+                "condition":        condition,
+                "arduino_connected": _arduino_state["connected"],
             }
             yield f"data: {json.dumps(payload)}\n\n"
             await asyncio.sleep(1)

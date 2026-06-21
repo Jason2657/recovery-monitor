@@ -468,33 +468,7 @@ async def research_patient(
         if progress_cb:
             await progress_cb("PubMed", f"Found {n_pubmed} article(s) total ✓" if n_pubmed else "Found 0 articles — check queries")
 
-    # ── Step 2: Cleveland Clinic ────────────────────────────────────────────
-    cc_text = ""
-    if bb_key and bb_project and PLAYWRIGHT_AVAILABLE:
-        if progress_cb:
-            await progress_cb("Cleveland Clinic", f"Browserbase searching for '{cfg['bb_cleveland_query']}'…")
-        cc_text = await _bb_fetch_cleveland(cfg["bb_cleveland_query"], bb_key, bb_project)
-        if cc_text and progress_cb:
-            await progress_cb("Cleveland Clinic", f"Extracted {len(cc_text):,} chars via Browserbase ✓")
-        elif progress_cb:
-            await progress_cb("Cleveland Clinic", "Browserbase returned empty — trying direct URL…")
-
-    if not cc_text and cfg.get("cc_direct_url"):
-        if progress_cb:
-            await progress_cb("Cleveland Clinic", "Fetching direct URL…")
-        html = await _fetch_url(cfg["cc_direct_url"])
-        cc_text = _extract_main_content(html, max_chars=5000)
-        if len(cc_text) > 300 and progress_cb:
-            await progress_cb("Cleveland Clinic", f"Extracted {len(cc_text):,} chars ✓")
-        elif progress_cb:
-            await progress_cb("Cleveland Clinic", "Could not extract content — skipped")
-
-    if cc_text and len(cc_text) > 300:
-        raw_sources.append({
-            "type": "clinical", "name": "Cleveland Clinic",
-            "url": cfg.get("cc_direct_url") or "https://my.clevelandclinic.org",
-            "text": cc_text,
-        })
+    # ── Step 2: Cleveland Clinic — DISABLED (Browserbase incompatible) ─────────
 
     # ── Step 3: NIH MedlinePlus ─────────────────────────────────────────────
     if cfg.get("ml_url"):

@@ -597,7 +597,7 @@ def run_full_pipeline(
         "patient_name": profile.get("name", "Unknown"),
         "analysis_timestamp": datetime.datetime.now().isoformat(),
         "model": MODEL,
-        "mesh": bool(use_mesh),
+        "mesh": False,  # set True only if the Fetch mesh actually ran (not just requested)
         "agents": {},
     }
 
@@ -636,6 +636,7 @@ def run_full_pipeline(
                 full_log["mesh_addresses"] = fetch_mesh.mesh_status()
                 for sid in ("signal", "trend", "self_report"):
                     record(sid, _ANALYSIS_LABELS[sid], analyses[sid], None)
+                full_log["mesh"] = True
             except Exception as exc:  # never break the pipeline; fall back to direct
                 full_log["mesh_error"] = str(exc)
                 analyses = None

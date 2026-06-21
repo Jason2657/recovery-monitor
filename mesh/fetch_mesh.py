@@ -26,7 +26,9 @@ Design notes
 
 from __future__ import annotations
 
+import asyncio
 import json
+import socket
 import threading
 import time
 from typing import Any, Callable
@@ -160,11 +162,31 @@ def mesh_status() -> list[dict]:
     """Return each analysis worker's real uAgent address (no network needed)."""
     if not _UAGENTS_AVAILABLE:
         return []
+    _ensure_loop()
     out = []
     for stage in ANALYSIS_STAGES:
         a = Agent(name=f"analysis-{stage}", seed=_SEEDS[stage])
         out.append({"stage": stage, "name": a.name, "address": a.address})
     return out
+
+
+def _ensure_loop() -> None:
+    """uAgents construct against the current thread's asyncio loop. Worker threads
+    (e.g. the web app's pipeline thread) don't have one, so create it on demand."""
+    try:
+        asyncio.get_event_loop()
+    except RuntimeError:
+        asyncio.set_event_loop(asyncio.new_event_loop())
+
+
+def _free_port() -> int:
+    """Grab a free TCP port for the Bureau's local server."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+    finally:
+        s.close()
 
 
 def run_parallel_analysis_via_mesh(
@@ -183,29 +205,42 @@ def run_parallel_analysis_via_mesh(
         raise RuntimeError("uagents is not installed — cannot run the Fetch.ai mesh.")
 
     global _CTX
-    coordinator = _make_coordinator(len(ANALYSIS_STAGES))
-    workers = [_make_worker(s) for s in ANALYSIS_STAGES]
-
-    # Use a non-8000 port so the Bureau never collides with the FastAPI app.
-    bureau = Bureau(port=8771)
-    bureau.add(coordinator)
-    for w in workers:
-        bureau.add(w)
-
     _CTX = {
         "client": client,
         "patient_data": patient_data,
         "callbacks": callbacks or {},
-        "coordinator_address": coordinator.address,
+        "coordinator_address": None,
         "results": {},
         "done": threading.Event(),
     }
+    error: dict = {}
 
-    thread = threading.Thread(target=bureau.run, daemon=True)
-    thread.start()
+    def _run_bureau():
+        # This dedicated thread OWNS the Bureau. uAgents build against the current
+        # thread's event loop, so give this thread one before constructing any
+        # Agent — that's the fix for running the mesh from the web app's worker
+        # thread (which otherwise has no loop). A free ephemeral port each run
+        # avoids colliding with the FastAPI app or a previous run's daemon Bureau.
+        _ensure_loop()
+        try:
+            coordinator = _make_coordinator(len(ANALYSIS_STAGES))
+            workers = [_make_worker(s) for s in ANALYSIS_STAGES]
+            _CTX["coordinator_address"] = coordinator.address
+            bureau = Bureau(port=_free_port())
+            bureau.add(coordinator)
+            for w in workers:
+                bureau.add(w)
+            bureau.run()
+        except Exception as exc:  # surface to the caller; never hang
+            error["exc"] = exc
+            _CTX["done"].set()
+
+    threading.Thread(target=_run_bureau, daemon=True).start()
 
     if not _CTX["done"].wait(timeout):
         raise TimeoutError("Fetch.ai mesh analysis timed out.")
+    if error.get("exc"):
+        raise error["exc"]
     return dict(_CTX["results"])
 
 

@@ -276,7 +276,8 @@ Return JSON ONLY:
     return _parse_json(_call(client, system, user, max_tokens=2000))
 
 
-def run_knowledge_agent(signal_out: dict, trend_out: dict, self_report_out: dict, client) -> dict:
+def run_knowledge_agent(signal_out: dict, trend_out: dict, self_report_out: dict,
+                        client, web_research: dict = None) -> dict:
     news2 = signal_out.get("_news2", {})
     trends = trend_out.get("_trends", {})
 
@@ -295,11 +296,18 @@ KEY METRICS:
   Red flag phrases: {self_report_out.get('red_flag_phrases', [])}
 """
 
+    # Inject live web research if available
+    lit_context = ""
+    if web_research and not web_research.get("error"):
+        from web_research import format_for_agents
+        lit_context = "\n\n" + format_for_agents(web_research)
+
     system = (
         "You are a medical knowledge retrieval agent (RAG). "
-        "Apply the provided clinical knowledge base to the patient state. "
-        "Always cite specific criteria by name and threshold. Retrieve relevant guidelines "
-        "for the most applicable condition. Return valid JSON only."
+        "Apply the provided clinical knowledge base AND any literature research context to the patient state. "
+        "Always cite specific criteria by name and threshold. When literature context is present, "
+        "cross-reference it with the built-in guidelines and flag any additional risks it reveals. "
+        "Return valid JSON only."
     )
     user = f"""Apply clinical guidelines to this post-discharge patient state.
 
@@ -307,9 +315,10 @@ CURRENT STATE:
 {state}
 
 CLINICAL KNOWLEDGE BASE:
-{json.dumps(CLINICAL_KNOWLEDGE_BASE, indent=2)}
+{json.dumps(CLINICAL_KNOWLEDGE_BASE, indent=2)}{lit_context}
 
 Identify which specific criteria are triggered. Be precise — state the threshold and whether it is met.
+If literature research context is provided above, incorporate its complication thresholds and red flags.
 
 Return JSON ONLY:
 {{
@@ -445,11 +454,34 @@ Return JSON ONLY:
     return _parse_json(_call(client, system, user, max_tokens=2500))
 
 
-def run_brief_agent(reconciler_out: dict, patient_profile: dict, days_post_discharge: int, client) -> str:
+def run_brief_agent(reconciler_out: dict, patient_profile: dict, days_post_discharge: int,
+                    client, web_research: dict = None) -> str:
+    # Build optional research context block for the brief
+    lit_section = ""
+    if web_research and not web_research.get("error"):
+        flags = (web_research.get("red_flags") or [])[:5]
+        highlights = (web_research.get("evidence_highlights") or [])[:2]
+        sources = [s.get("name","") for s in (web_research.get("sources_fetched") or [])]
+        lit_section = f"""
+LITERATURE-BASED CONTEXT (incorporated from {', '.join(sources)}):
+{web_research.get('diagnosis_context', '')}
+
+Evidence-based red flags for this diagnosis:
+{chr(10).join(f'  • {f}' for f in flags)}
+
+Key findings:
+{chr(10).join(f'  [{e.get("source","?")}]: {e.get("key_finding","")}' for e in highlights)}
+
+Patient-specific risk narrative:
+{web_research.get('tailored_risk_narrative', '')[:500]}
+"""
+
     system = (
         "You are a Clinical Brief Agent. Convert AI risk assessments into SBAR format — "
         "the standard healthcare handoff format. Write for a care coordinator who needs to act. "
-        "Be specific: include numbers, dates, and exact action items with timeframes."
+        "Be specific: include numbers, dates, exact action items with timeframes. "
+        "When literature research context is provided, weave it into the brief to make "
+        "recommendations evidence-based and specific to this patient's diagnosis."
     )
     user = f"""Create an SBAR clinical brief.
 
@@ -468,20 +500,20 @@ AI RISK ASSESSMENT:
   Action: {reconciler_out.get('recommended_action', '?')}
   Time sensitivity: {str(reconciler_out.get('time_sensitivity', '?')).replace('_', ' ').upper()}
   Rationale: {reconciler_out.get('rationale', '?')}
-
+{lit_section}
 Use EXACTLY this format:
 
 **SITUATION**
 [1-2 sentences: who, what concern, why reaching out now]
 
 **BACKGROUND**
-[2-3 sentences: relevant clinical context, key worsening metrics with numbers]
+[2-3 sentences: relevant clinical context, key worsening metrics with numbers, reference literature findings where relevant]
 
 **ASSESSMENT**
-[3-4 sentences: AI assessment with specific data points, risk score, top drivers]
+[3-4 sentences: AI assessment with specific data points, risk score, top drivers, cite any literature-based thresholds that are triggered]
 
 **RECOMMENDATION**
-[Numbered list of 4-5 specific action items with timeframes]
+[Numbered list of 4-5 specific action items with timeframes, grounded in both AI findings and published guidelines]
 
 ---
 *PostCare AI Monitor | {patient_profile['id']} | 2026-06-20 | {MODEL}*"""
@@ -561,16 +593,19 @@ def extract_brief(agent_id: str, result) -> dict:
 
 # ─── Full pipeline orchestrator ───────────────────────────────────────────────
 
-def run_full_pipeline(patient_data: dict, client, callbacks: dict = None, log_dir: str = "logs") -> tuple:
+def run_full_pipeline(patient_data: dict, client, callbacks: dict = None,
+                      log_dir: str = "logs", web_research: dict = None) -> tuple:
     """
     Run all 7 agents sequentially, calling callbacks after each step,
     saving the full reasoning to a JSON log file.
 
     Args:
-        patient_data: dict with 'profile', 'sensor_history', 'self_reports'
-        client: anthropic.Anthropic instance
-        callbacks: {'on_start': fn(agent_id, label), 'on_complete': fn(agent_id, label, brief, elapsed)}
-        log_dir: directory to write reasoning log
+        patient_data:  dict with 'profile', 'sensor_history', 'self_reports'
+        client:        anthropic.Anthropic instance
+        callbacks:     {'on_start': fn(agent_id, label), 'on_complete': fn(agent_id, label, brief, elapsed)}
+        log_dir:       directory to write reasoning log
+        web_research:  optional structured research dict from web_research.research_patient()
+                       — injected into knowledge agent and brief agent when present
 
     Returns:
         (full_log dict, log_file_path string)
@@ -611,14 +646,14 @@ def run_full_pipeline(patient_data: dict, client, callbacks: dict = None, log_di
     trend_out = step("trend", "Trend Agent", run_trend_agent, history, profile, client)
     self_report_out = step("self_report", "Self-Report NLP", run_self_report_agent, reports, client)
     knowledge_out = step("knowledge", "Medical Knowledge (RAG)", run_knowledge_agent,
-                          signal_out, trend_out, self_report_out, client)
+                          signal_out, trend_out, self_report_out, client, web_research)
     skeptic_out = step("skeptic", "Adversarial Skeptic", run_skeptic_agent,
                         signal_out, trend_out, self_report_out, knowledge_out, profile, client)
     reconciler_out = step("reconciler", "Reconciler / Judge", run_reconciler_agent,
                            signal_out, trend_out, self_report_out, knowledge_out, skeptic_out,
                            profile, days, client)
     sbar_text = step("brief", "Clinical Brief (SBAR)", run_brief_agent,
-                      reconciler_out, profile, days, client)
+                      reconciler_out, profile, days, client, web_research)
 
     full_log["risk_score"] = reconciler_out.get("risk_score", 0)
     full_log["risk_level"] = reconciler_out.get("risk_level", "unknown")
@@ -627,6 +662,10 @@ def run_full_pipeline(patient_data: dict, client, callbacks: dict = None, log_di
     full_log["time_sensitivity"] = reconciler_out.get("time_sensitivity", "")
     full_log["escalation_level"] = reconciler_out.get("escalation_level", 0)
     full_log["escalation_recommendation"] = reconciler_out.get("escalation_recommendation", "")
+    full_log["web_research_incorporated"] = bool(web_research and not web_research.get("error"))
+    full_log["web_research_sources"] = [
+        s.get("name") for s in (web_research or {}).get("sources_fetched", [])
+    ] if web_research else []
 
     os.makedirs(log_dir, exist_ok=True)
     ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")

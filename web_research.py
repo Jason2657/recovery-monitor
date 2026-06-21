@@ -1,13 +1,11 @@
 """
 Web research module for PostCare AI Monitor.
 
-Fetches tailored medical literature about a patient's specific condition/surgery from:
-  - PubMed E-utilities API (free, no key needed) — peer-reviewed studies
-  - Mayo Clinic — patient-facing clinical guides
-  - Cleveland Clinic — clinical overviews and recovery protocols
-
-Uses Browserbase + Playwright when BROWSERBASE_API_KEY is configured (better for
-JS-heavy pages). Falls back to direct httpx with browser headers otherwise.
+Sources (in order of reliability):
+  - PubMed E-utilities API — peer-reviewed abstracts, free, no key required
+  - MedlinePlus (NIH)      — always accessible, clean HTML, authoritative
+  - Cleveland Clinic        — accessible with browser headers
+  - Browserbase + Playwright — cloud browser for any JS-heavy page (optional)
 """
 
 import asyncio
@@ -30,7 +28,6 @@ except ImportError:
 
 MODEL = "claude-opus-4-8"
 
-# ── Browser-like headers for direct httpx fetches ──────────────────────────────
 _HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -42,74 +39,79 @@ _HEADERS = {
     "Cache-Control": "no-cache",
 }
 
-# ── Condition-specific research targets ────────────────────────────────────────
-_TARGETS = {
+# ── Condition-specific research targets (only sources that actually return content) ──
+_TARGETS: dict[str, dict] = {
     "chf": {
         "pubmed": [
-            "heart failure 30-day readmission remote patient monitoring weight gain early detection",
-            "acute decompensated heart failure post-discharge wearable sensor prediction complication",
+            "heart failure readmission prevention remote monitoring",
+            "acute decompensated heart failure post-discharge outcomes",
         ],
         "web": [
-            ("Mayo Clinic", "https://www.mayoclinic.org/diseases-conditions/heart-failure/diagnosis-treatment/drc-20373148"),
-            ("Cleveland Clinic", "https://my.clevelandclinic.org/health/diseases/17069-heart-failure-understanding-heart-failure"),
+            ("NIH MedlinePlus",   "https://medlineplus.gov/heartfailure.html"),
+            ("Cleveland Clinic",  "https://my.clevelandclinic.org/health/diseases/17069-heart-failure-understanding-heart-failure"),
+            ("NHLBI",             "https://www.nhlbi.nih.gov/health/heart-failure"),
         ],
     },
     "copd": {
         "pubmed": [
-            "COPD exacerbation remote monitoring pulse oximetry 30-day readmission prevention",
-            "chronic obstructive pulmonary disease post-discharge complication respiratory failure",
+            "COPD exacerbation remote monitoring readmission prevention",
+            "chronic obstructive pulmonary disease post-discharge outcomes",
         ],
         "web": [
-            ("Mayo Clinic", "https://www.mayoclinic.org/diseases-conditions/copd/diagnosis-treatment/drc-20353685"),
+            ("NIH MedlinePlus",  "https://medlineplus.gov/copd.html"),
             ("Cleveland Clinic", "https://my.clevelandclinic.org/health/diseases/8709-chronic-obstructive-pulmonary-disease-copd"),
+            ("NHLBI",            "https://www.nhlbi.nih.gov/health/copd"),
         ],
     },
     "post_surgical": {
         "pubmed": [
-            "total knee arthroplasty TKA complications surgical site infection readmission 30-day",
-            "knee replacement post-discharge recovery activity monitoring remote outcomes",
+            "total knee arthroplasty complications readmission surgical site infection",
+            "knee replacement recovery outcomes remote monitoring",
         ],
         "web": [
-            ("Mayo Clinic", "https://www.mayoclinic.org/tests-procedures/knee-replacement/about/pac-20385276"),
+            ("NIH MedlinePlus",  "https://medlineplus.gov/kneereplacement.html"),
             ("Cleveland Clinic", "https://my.clevelandclinic.org/health/treatments/8619-knee-replacement"),
+            ("AAOS OrthoInfo",   "https://orthoinfo.aaos.org/en/treatment/total-knee-replacement/"),
         ],
     },
     "general": {
         "pubmed": [
-            "post-discharge remote patient monitoring readmission prevention wearable sensor",
+            "post-discharge remote patient monitoring readmission prevention",
         ],
-        "web": [],
+        "web": [
+            ("NIH MedlinePlus", "https://medlineplus.gov/dischargeplanning.html"),
+        ],
     },
 }
 
 
-# ── HTML text extraction ───────────────────────────────────────────────────────
+# ── HTML extraction ────────────────────────────────────────────────────────────
 
-def _extract_text(html: str, max_chars: int = 6000) -> str:
+def _extract_text(html: str, max_chars: int = 7000) -> str:
     if not html:
         return ""
     if BS4_AVAILABLE:
         soup = BeautifulSoup(html, "html.parser")
-        for tag in soup(["script", "style", "nav", "footer", "header", "aside", "form", "button"]):
+        for tag in soup(["script", "style", "nav", "footer", "header", "aside",
+                          "form", "button", "noscript", "iframe", "svg"]):
             tag.decompose()
         text = soup.get_text(separator=" ", strip=True)
     else:
         text = re.sub(r"<script[^>]*>.*?</script>", "", html, flags=re.DOTALL | re.IGNORECASE)
         text = re.sub(r"<style[^>]*>.*?</style>", "", text, flags=re.DOTALL | re.IGNORECASE)
         text = re.sub(r"<[^>]+>", " ", text)
-        for ent, ch in [("&amp;", "&"), ("&lt;", "<"), ("&gt;", ">"), ("&nbsp;", " "), ("&quot;", '"'), ("&#39;", "'")]:
+        for ent, ch in [("&amp;", "&"), ("&lt;", "<"), ("&gt;", ">"),
+                         ("&nbsp;", " "), ("&quot;", '"'), ("&#39;", "'")]:
             text = text.replace(ent, ch)
-    text = re.sub(r"\s+", " ", text).strip()
-    return text[:max_chars]
+    return re.sub(r"\s+", " ", text).strip()[:max_chars]
 
 
 # ── Fetching helpers ───────────────────────────────────────────────────────────
 
 async def _fetch_direct(url: str, client: httpx.AsyncClient) -> str:
-    """Direct httpx fetch with browser headers."""
     try:
-        resp = await client.get(url, headers=_HEADERS, follow_redirects=True, timeout=15.0)
-        if resp.status_code == 200:
+        resp = await client.get(url, headers=_HEADERS, follow_redirects=True, timeout=25.0)
+        if resp.status_code == 200 and len(resp.text) > 500:
             return resp.text
     except Exception:
         pass
@@ -117,26 +119,25 @@ async def _fetch_direct(url: str, client: httpx.AsyncClient) -> str:
 
 
 async def _fetch_browserbase(url: str, bb_key: str, bb_project: str) -> str:
-    """Fetch a JS-rendered page using Browserbase cloud browser + Playwright."""
     if not PLAYWRIGHT_AVAILABLE or not bb_key or not bb_project:
         return ""
     try:
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            resp = await client.post(
+        async with httpx.AsyncClient(timeout=20.0) as c:
+            r = await c.post(
                 "https://api.browserbase.com/v1/sessions",
                 headers={"X-BB-API-Key": bb_key, "Content-Type": "application/json"},
                 json={"projectId": bb_project},
             )
-            if resp.status_code not in (200, 201):
+            if r.status_code not in (200, 201):
                 return ""
-            session_id = resp.json().get("id", "")
+            session_id = r.json().get("id", "")
         if not session_id:
             return ""
 
         cdp_url = f"wss://connect.browserbase.com?apiKey={bb_key}&sessionId={session_id}"
         async with async_playwright() as pw:
             browser = await pw.chromium.connect_over_cdp(cdp_url)
-            ctx = browser.contexts[0] if browser.contexts else await browser.new_context()
+            ctx  = browser.contexts[0] if browser.contexts else await browser.new_context()
             page = ctx.pages[0] if ctx.pages else await ctx.new_page()
             await page.goto(url, wait_until="domcontentloaded", timeout=25000)
             await page.wait_for_timeout(1500)
@@ -147,56 +148,52 @@ async def _fetch_browserbase(url: str, bb_key: str, bb_project: str) -> str:
         return ""
 
 
-async def _fetch_page(
-    url: str,
-    source_name: str,
-    http_client: httpx.AsyncClient,
-    bb_key: str,
-    bb_project: str,
-) -> str:
-    """Fetch a page, preferring Browserbase if configured, else direct."""
+async def _fetch_page(url: str, client: httpx.AsyncClient, bb_key: str, bb_project: str) -> str:
     html = ""
     if bb_key and bb_project and PLAYWRIGHT_AVAILABLE:
         html = await _fetch_browserbase(url, bb_key, bb_project)
     if not html:
-        html = await _fetch_direct(url, http_client)
+        html = await _fetch_direct(url, client)
     return html
 
 
 # ── PubMed ─────────────────────────────────────────────────────────────────────
 
 async def _pubmed_search(query: str, max_results: int = 4) -> list[dict]:
-    """Search PubMed and return article abstracts."""
     results = []
     try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            sr = await client.get(
+        async with httpx.AsyncClient(timeout=20.0) as c:
+            # Step 1: search for IDs
+            sr = await c.get(
                 "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi",
-                params={
-                    "db": "pubmed", "term": query,
-                    "retmax": max_results, "retmode": "json",
-                    "sort": "relevance", "datetype": "pdat", "reldate": 1825,  # last 5 years
-                },
+                params={"db": "pubmed", "term": query, "retmax": max_results,
+                        "retmode": "json", "sort": "relevance"},
             )
             ids = sr.json().get("esearchresult", {}).get("idlist", [])
             if not ids:
                 return []
 
-            await asyncio.sleep(0.35)  # NCBI rate limit courtesy
+            await asyncio.sleep(0.4)   # NCBI rate-limit courtesy
 
-            fr = await client.get(
+            # Step 2: fetch full abstracts as plain text
+            fr = await c.get(
                 "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi",
-                params={"db": "pubmed", "id": ",".join(ids), "rettype": "abstract", "retmode": "text"},
+                params={"db": "pubmed", "id": ",".join(ids),
+                        "rettype": "abstract", "retmode": "text"},
             )
-            raw = fr.text
-            blocks = re.split(r"\n\d+\. ", raw)
+            raw = fr.text.strip()
+
+            # Normalize: prepend \n so the leading "1. " matches the same pattern as "\n2. "
+            normalized = "\n" + raw
+            blocks = re.split(r"\n\d+\. ", normalized)
+            # blocks[0] is empty (before the first article); blocks[1:] are the articles
             for i, block in enumerate(blocks[1:], 0):
                 text = block.strip()
-                if len(text) > 120:
+                if len(text) > 100:
                     pmid = ids[i] if i < len(ids) else "?"
                     results.append({
                         "pmid": pmid,
-                        "text": text[:2500],
+                        "text": text[:2800],
                         "url": f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/",
                     })
     except Exception:
@@ -214,108 +211,96 @@ async def research_patient(
     progress_cb: Optional[Callable] = None,
 ) -> dict:
     """
-    Fetch medical research tailored to this patient's specific diagnosis/surgery.
-    Returns a structured dict with synthesis, sources, complications, and red flags.
-
-    progress_cb: async callable(source_name: str, status: str)
+    Fetch and synthesize medical research tailored to this patient's specific diagnosis.
+    Returns a structured dict; result is meant to be injected into the agent pipeline.
     """
     condition = profile.get("primary_condition", "general")
     diagnosis = profile.get("diagnosis", "")
-    name = profile.get("name", "patient")
-    age = profile.get("age", "")
-    sex = profile.get("sex", "")
+    name      = profile.get("name", "patient")
+    age       = profile.get("age", "")
+    sex       = profile.get("sex", "")
 
     targets = _TARGETS.get(condition, _TARGETS["general"])
-    pubmed_queries = list(targets.get("pubmed", []))
 
-    # Inject a diagnosis-specific PubMed query for tailored results
+    # Always prepend a patient-specific PubMed query derived from their actual diagnosis
+    pubmed_queries = list(targets.get("pubmed", []))
     diag_short = diagnosis.split("(")[0].strip()[:70]
     if diag_short:
-        pubmed_queries.insert(0,
-            f"{diag_short} post-discharge complications readmission 30-day monitoring"
-        )
+        pubmed_queries.insert(0, f"{diag_short} post-discharge complications readmission monitoring")
 
-    raw_sources = []
+    raw_sources: list[dict] = []
 
     # ── PubMed ──────────────────────────────────────────────────────────────────
+    seen_pmids: set[str] = set()
     for query in pubmed_queries[:2]:
         if progress_cb:
             await progress_cb("PubMed", f"Searching: {query[:65]}…")
         articles = await _pubmed_search(query, max_results=3)
+        added = 0
         for art in articles:
-            raw_sources.append({
-                "type": "journal",
-                "name": "PubMed",
-                "url": art["url"],
-                "pmid": art["pmid"],
-                "text": art["text"],
-            })
+            if art["pmid"] not in seen_pmids:
+                seen_pmids.add(art["pmid"])
+                raw_sources.append({"type": "journal", "name": "PubMed",
+                                    "url": art["url"], "pmid": art["pmid"], "text": art["text"]})
+                added += 1
         if progress_cb:
-            await progress_cb("PubMed", f"Found {len(articles)} articles")
+            await progress_cb("PubMed", f"Found {added} new articles (total {len(seen_pmids)})")
 
     # ── Web sources ─────────────────────────────────────────────────────────────
-    async with httpx.AsyncClient(timeout=15.0) as http_client:
+    async with httpx.AsyncClient(timeout=25.0) as http_client:
         for source_name, url in targets.get("web", []):
             if progress_cb:
-                await progress_cb(source_name, "Fetching page…")
-            html = await _fetch_page(url, source_name, http_client, bb_key, bb_project)
+                await progress_cb(source_name, "Fetching…")
+            html = await _fetch_page(url, http_client, bb_key, bb_project)
             if html:
                 text = _extract_text(html)
-                raw_sources.append({
-                    "type": "clinical",
-                    "name": source_name,
-                    "url": url,
-                    "pmid": None,
-                    "text": text,
-                })
-                if progress_cb:
-                    await progress_cb(source_name, f"Extracted {len(text)} chars")
+                if len(text) > 200:    # skip if basically empty after extraction
+                    raw_sources.append({"type": "clinical", "name": source_name,
+                                        "url": url, "pmid": None, "text": text})
+                    if progress_cb:
+                        await progress_cb(source_name, f"Extracted {len(text):,} chars ✓")
+                else:
+                    if progress_cb:
+                        await progress_cb(source_name, "Content too short — skipped")
             else:
                 if progress_cb:
                     await progress_cb(source_name, "Could not fetch — skipped")
 
     if not raw_sources:
-        return {
-            "error": "No sources could be fetched. Check network connectivity.",
-            "sources_fetched": [],
-            "patient_id": profile.get("id", ""),
-            "diagnosis": diagnosis,
-        }
+        return {"error": "No sources returned content. Check network connectivity.",
+                "sources_fetched": [], "patient_id": profile.get("id", ""), "diagnosis": diagnosis}
 
     # ── Claude synthesis ─────────────────────────────────────────────────────────
     if progress_cb:
-        await progress_cb("Claude", "Synthesizing research into clinical knowledge…")
+        await progress_cb("Claude", "Synthesizing research…")
 
-    sources_block = "\n\n---\n\n".join([
+    sources_block = "\n\n---\n\n".join(
         f"SOURCE [{i+1}]: {s['name']}\nURL: {s['url']}\n\n{s['text'][:3500]}"
         for i, s in enumerate(raw_sources)
-    ])
+    )
 
     system = (
-        "You are a clinical evidence synthesizer for a remote patient monitoring AI system. "
-        "Your job is to extract and structure medically accurate, evidence-based information "
-        "from the provided sources, tailored to a specific patient's diagnosis and demographics. "
-        "Focus on post-discharge monitoring parameters, early warning signs of complications, "
-        "and evidence-based escalation triggers. Do NOT give advice directly to patients — "
-        "this output is for a clinical AI monitoring system. Return valid JSON only."
+        "You are a clinical evidence synthesizer for a remote patient monitoring AI. "
+        "Extract and organize medically accurate, evidence-based information from the sources, "
+        "tailored to this patient's specific diagnosis and demographics. "
+        "Focus on: post-discharge monitoring parameters, early warning signs, and escalation triggers. "
+        "This output will be injected into a multi-agent clinical AI pipeline — be specific, cite sources, "
+        "and prioritize actionable thresholds over general information. Return valid JSON only."
     )
-    user = f"""Patient context:
-  Name: {name} | Age: {age} | Sex: {sex}
-  Diagnosis: {diagnosis}
-  Condition type: {condition}
+    user = f"""Patient: {name} | Age: {age} | Sex: {sex}
+Diagnosis: {diagnosis} | Condition type: {condition}
 
-Synthesize the following medical literature and clinical sources into structured knowledge
-for this patient's post-discharge monitoring. Tailor insights to this specific patient.
+Synthesize the following medical sources into structured clinical knowledge for AI-assisted monitoring:
 
 {sources_block}
 
-Return ONLY valid JSON:
+Return ONLY valid JSON (no markdown fences):
 {{
-  "diagnosis_context": "2-3 sentences on what this condition/surgery is, why post-discharge monitoring matters, and the 30-day readmission landscape",
-  "surgery_reason": "If surgical: 1-2 sentences on the typical reasons this surgery is performed and the underlying pathology being treated",
+  "diagnosis_context": "2-3 sentences: what this condition/surgery is, why post-discharge monitoring matters, 30-day readmission landscape",
+  "surgery_reason": "If surgical: why this surgery is performed, underlying pathology treated. Empty string otherwise.",
   "recovery_timeline": {{
-    "week_1": "Expected milestones and normal vs abnormal signs",
-    "week_2": "Expected milestones and normal vs abnormal signs",
+    "week_1": "Expected milestones and normal vs abnormal findings",
+    "week_2": "Expected milestones and normal vs abnormal findings",
     "month_1": "Expected state and typical remaining concerns"
   }},
   "common_complications": [
@@ -324,29 +309,29 @@ Return ONLY valid JSON:
       "incidence": "X% of patients",
       "onset_window": "Days X-Y post-discharge",
       "warning_signs": ["sign 1", "sign 2"],
-      "monitoring_action": "what to monitor and at what threshold"
+      "monitoring_action": "specific parameter and threshold"
     }}
   ],
   "monitoring_parameters": [
     {{
-      "parameter": "Metric name",
+      "parameter": "metric name",
       "normal_range": "range",
-      "concern_threshold": "value that should trigger review",
-      "evidence_basis": "brief rationale from the literature"
+      "concern_threshold": "value triggering review",
+      "evidence_basis": "brief rationale from literature"
     }}
   ],
   "red_flags": [
-    "Specific sign → specific escalation action (e.g. Weight gain >5 lbs/week → physician contact within 4h)"
+    "Specific finding → specific action (e.g. Weight >5 lbs/week → physician contact within 4h)"
   ],
   "evidence_highlights": [
     {{
       "source": "source name",
       "url": "url",
-      "key_finding": "1-2 sentence key finding",
-      "clinical_relevance": "how this specifically applies to this patient"
+      "key_finding": "1-2 sentence finding",
+      "clinical_relevance": "how this applies to this patient"
     }}
   ],
-  "tailored_risk_narrative": "2-3 paragraph narrative specifically about THIS patient's risk profile, what to watch for, and why, based on their diagnosis and condition type"
+  "tailored_risk_narrative": "2-3 paragraphs specifically about THIS patient's risk profile, what to watch for, and why"
 }}"""
 
     with anthropic_client.messages.stream(
@@ -358,23 +343,73 @@ Return ONLY valid JSON:
     ) as stream:
         msg = stream.get_final_message()
 
-    text_out = ""
-    for block in msg.content:
-        if hasattr(block, "text") and block.type == "text":
-            text_out = block.text
-            break
+    text_out = next(
+        (b.text for b in msg.content if hasattr(b, "text") and b.type == "text"),
+        ""
+    )
 
-    # Parse JSON — reuse agents._parse_json
     from agents import _parse_json
     synthesis = _parse_json(text_out)
-
     synthesis["sources_fetched"] = [
-        {"name": s["name"], "url": s["url"], "type": s["type"],
-         "pmid": s.get("pmid")}
+        {"name": s["name"], "url": s["url"], "type": s["type"], "pmid": s.get("pmid")}
         for s in raw_sources
     ]
     synthesis["patient_id"] = profile.get("id", "")
-    synthesis["diagnosis"] = diagnosis
-    synthesis["condition"] = condition
-
+    synthesis["diagnosis"]  = diagnosis
+    synthesis["condition"]  = condition
     return synthesis
+
+
+# ── Compact summary for agent injection ────────────────────────────────────────
+
+def format_for_agents(research: dict) -> str:
+    """
+    Compact plain-text summary of web research, designed to fit in an agent prompt
+    without exceeding token budgets. Called by agents.py.
+    """
+    if not research or research.get("error"):
+        return ""
+
+    comps = research.get("common_complications") or []
+    comp_lines = "\n".join(
+        f"  • {c.get('name','?')} — onset {c.get('onset_window','?')}, "
+        f"incidence {c.get('incidence','?')}: {', '.join(c.get('warning_signs',[])[:2])}"
+        for c in comps[:4]
+    )
+
+    params = research.get("monitoring_parameters") or []
+    param_lines = "\n".join(
+        f"  • {p.get('parameter','?')}: concern ≥ {p.get('concern_threshold','?')} "
+        f"({p.get('evidence_basis','')})"
+        for p in params[:4]
+    )
+
+    flags = research.get("red_flags") or []
+    flag_lines = "\n".join(f"  ⚠ {f}" for f in flags[:6])
+
+    evidence = research.get("evidence_highlights") or []
+    evid_lines = "\n".join(
+        f"  [{e.get('source','?')}]: {e.get('key_finding','')}"
+        for e in evidence[:3]
+    )
+
+    sources = [s.get("name", "") for s in (research.get("sources_fetched") or [])]
+
+    return f"""LITERATURE-BASED CLINICAL CONTEXT (sources: {', '.join(sources)})
+Diagnosis: {research.get('diagnosis', '')}
+{research.get('diagnosis_context', '')}
+
+EVIDENCE-BASED COMPLICATIONS:
+{comp_lines}
+
+MONITORING PARAMETERS FROM LITERATURE:
+{param_lines}
+
+RED FLAGS FROM LITERATURE:
+{flag_lines}
+
+EVIDENCE HIGHLIGHTS:
+{evid_lines}
+
+PATIENT-SPECIFIC RISK NARRATIVE:
+{research.get('tailored_risk_narrative', '')[:600]}"""

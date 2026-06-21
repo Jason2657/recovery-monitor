@@ -433,6 +433,7 @@ async def analyze(patient_id: str):
                 patient_data, client,
                 callbacks={"on_start": on_start, "on_complete": on_complete},
                 log_dir="logs",
+                web_research=research_cache.get(patient_id),
             )
             last_results[patient_id] = {
                 "risk_score": full_log.get("risk_score", 0),
@@ -448,6 +449,8 @@ async def analyze(patient_id: str):
                 "time_sensitivity": full_log.get("time_sensitivity", ""),
                 "escalation_level": full_log.get("escalation_level", 0),
                 "escalation_recommendation": full_log.get("escalation_recommendation", ""),
+                "web_research_incorporated": full_log.get("web_research_incorporated", False),
+                "web_research_sources": full_log.get("web_research_sources", []),
                 "log_file": log_file,
             })
         except Exception as exc:

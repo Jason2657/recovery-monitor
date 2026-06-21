@@ -1032,6 +1032,13 @@ function runAnalysis() {
     else if (d.type === 'pipeline_complete') {
       renderRisk(d); renderSbar(d.sbar);
       renderEscalation(d.escalation_level ?? 0, d.escalation_recommendation ?? '');
+      if (d.web_research_incorporated) {
+        const src = (d.web_research_sources || []).join(', ');
+        const note = document.createElement('p');
+        note.className = 'text-xs text-violet-400 mt-2';
+        note.innerHTML = `🔬 Literature incorporated: <span class="text-slate-400">${esc(src)}</span>`;
+        document.getElementById('sbar-section').prepend(note);
+      }
       es.close(); finishRun(d);
     } else if (d.type === 'error') {
       showError(d.message); es.close(); finishRun(null);

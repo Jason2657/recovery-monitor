@@ -560,7 +560,7 @@
             <span class="fetch-badge"><span class="dot"></span>Fetch.ai uAgents</span>
           </div>
           <div class="flex items-center gap-2">
-            <span id="pipeline-progress-text" class="text-xs text-slate-500">0 / 7 agents</span>
+            <span id="pipeline-progress-text" class="text-xs text-slate-500">0 / 8 agents</span>
             <div class="w-24 h-1 rounded-full bg-white/5 overflow-hidden">
               <div id="pipeline-progress-bar" class="h-full rounded-full progress-fill bg-blue-500" style="width:0%"></div>
             </div>
@@ -588,6 +588,7 @@
           <div id="card-skeptic"     class="agent-card glass rounded-lg p-2 state-idle"></div>
           <div id="card-reconciler"  class="agent-card glass rounded-lg p-2 state-idle"></div>
           <div id="card-brief"       class="agent-card glass rounded-lg p-2 state-idle"></div>
+          <div id="card-escalation"  class="agent-card glass rounded-lg p-2 state-idle"></div>
         </div>
 
         <!-- Risk gauge -->
@@ -865,6 +866,7 @@ const AGENT_META = {
   skeptic:     { icon:'⚔',  label:'Skeptic',         desc:'Adversarial challenge' },
   reconciler:  { icon:'⚖',  label:'Judge',           desc:'Evidence reconciliation' },
   brief:       { icon:'📋', label:'Clinical Brief',   desc:'SBAR handoff document' },
+  escalation:  { icon:'🚨', label:'Escalation',      desc:'Fetch.ai governance gate' },
 };
 const SEV_COLORS = { low:'#22c55e', medium:'#f59e0b', high:'#f97316', critical:'#ef4444', unknown:'#6b7280' };
 const BUILT_IN = new Set(['PT-7421','PT-3892','PT-5163']);
@@ -1607,6 +1609,20 @@ function setAgentComplete(id, brief, elapsed) {
         <summary style="font-size:0.67rem;color:#475569;cursor:pointer;list-style:none;user-select:none" onmouseover="this.style.color='#94a3b8'" onmouseout="this.style.color='#475569'">▸ Rulings on debate (${rebuttals.length} rounds)</summary>
         <div style="padding-top:0.4rem">${dropdownContent}</div>
       </details>`;
+  } else if (id === 'escalation') {
+    const escalated = brief.escalated;
+    const reason    = brief.reason || '';
+    const addr      = brief.uagent_address || '';
+    const addrShort = addr.length > 16 ? addr.slice(0, 8) + '…' + addr.slice(-6) : addr;
+    if (escalated) {
+      detail = `<div style="color:#f87171;font-weight:600">🚨 Escalated — handoff delivered</div>
+        <div style="color:#94a3b8;font-size:0.65rem;margin-top:0.2rem">${esc(reason)}</div>
+        ${addr ? `<div style="color:#475569;font-size:0.62rem;font-family:monospace;margin-top:0.2rem">↳ uAgent: ${esc(addrShort)}</div>` : ''}`;
+    } else {
+      detail = `<div style="color:#4ade80">✓ Gate held — no escalation needed</div>
+        <div style="color:#64748b;font-size:0.65rem;margin-top:0.2rem">${esc(reason)}</div>
+        ${addr ? `<div style="color:#475569;font-size:0.62rem;font-family:monospace;margin-top:0.2rem">↳ uAgent: ${esc(addrShort)}</div>` : ''}`;
+    }
   } else if (id === 'brief') {
     detail = `<span class="text-slate-400">SBAR ready ↓</span>`;
   }
@@ -1626,8 +1642,8 @@ function setAgentComplete(id, brief, elapsed) {
 }
 
 function updateProgress(done) {
-  document.getElementById('pipeline-progress-bar').style.width = `${Math.round(done/7*100)}%`;
-  document.getElementById('pipeline-progress-text').textContent = `${done} / 7 agents`;
+  document.getElementById('pipeline-progress-bar').style.width = `${Math.round(done/8*100)}%`;
+  document.getElementById('pipeline-progress-text').textContent = `${done} / 8 agents`;
 }
 
 // ─── Run analysis ─────────────────────────────────────────────────────────────

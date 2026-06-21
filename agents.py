@@ -836,12 +836,12 @@ def run_full_pipeline(
 
         # ── Fetch.ai path: every stage is a real uAgent ───────────────────────
         if use_mesh:
-            from mesh import fetch_mesh as fm
-            if not fm.is_available():
-                full_log["mesh_error"] = "uagents not installed — falling back to direct calls"
-                use_mesh = False
-            else:
-                try:
+            try:
+                from mesh import fetch_mesh as fm
+                if not fm.is_available():
+                    full_log["mesh_error"] = "uagents not installed — falling back to direct calls"
+                    use_mesh = False
+                else:
                     mesh_result = fm.run_full_pipeline_via_mesh(
                         patient_data, client,
                         callbacks={"on_start": on_start, "on_complete": on_complete},
@@ -855,12 +855,12 @@ def run_full_pipeline(
                     results        = mesh_result["results"]
                     reconciler_out = results.get("reconciler", {})
                     sbar_text      = results.get("brief", "")
-                    assessment     = mesh_result["assessment"]
-                    gate           = mesh_result["gate"]
+                    assessment     = mesh_result.get("assessment")
+                    gate           = mesh_result.get("gate")
                     audit          = mesh_result["audit"]
-                except Exception as exc:
-                    full_log["mesh_error"] = str(exc)
-                    use_mesh = False   # fall through to direct path
+            except Exception as exc:
+                full_log["mesh_error"] = str(exc)
+                use_mesh = False   # fall through to direct path
 
         # ── Fallback: ThreadPoolExecutor + Band ───────────────────────────────
         if not use_mesh:

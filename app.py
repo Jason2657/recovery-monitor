@@ -84,7 +84,17 @@ if os.path.isdir("static"):
     app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # ─── In-memory caches ─────────────────────────────────────────────────────────
-last_results: dict = {}   # patient_id -> {risk_score, risk_level, timestamp}
+# Pre-seed built-in patients with representative scores so the sidebar shows
+# risk badges before the first analysis run. These are replaced by real pipeline
+# output the moment a run completes.
+last_results: dict = {
+    "PT-7421": {"risk_score": 78, "risk_level": "critical",  "timestamp": "baseline"},
+    "PT-3892": {"risk_score": 66, "risk_level": "high",      "timestamp": "baseline"},
+    "PT-5163": {"risk_score": 73, "risk_level": "high",      "timestamp": "baseline"},
+    "PT-8427": {"risk_score": 70, "risk_level": "high",      "timestamp": "baseline"},
+    "PT-2048": {"risk_score": 12, "risk_level": "low",       "timestamp": "baseline"},
+    "PT-1847": {"risk_score":  8, "risk_level": "low",       "timestamp": "baseline"},
+}
 _live_cache:  dict = {}   # patient_id -> latest live payload from /api/live SSE
 
 # ─── Clients (lazy-init) ──────────────────────────────────────────────────────
@@ -197,7 +207,7 @@ async def get_patients():
         p["days_post_discharge"] = len(pdata["sensor_history"])
         p["sensor_history"] = pdata["sensor_history"]
         p["latest_self_report"] = pdata["self_reports"][-1]["text"] if pdata["self_reports"] else ""
-        p["is_custom"] = pid not in ("PT-7421", "PT-3892", "PT-5163")
+        p["is_custom"] = pid not in ("PT-7421", "PT-3892", "PT-5163", "PT-8427", "PT-2048", "PT-1847")
         if pid in last_results:
             p["last_risk"] = last_results[pid]
         result.append(p)
@@ -255,7 +265,7 @@ async def create_patient(request: Request):
 @app.delete("/api/patients/{patient_id}")
 async def delete_patient(patient_id: str):
     """Delete a custom patient (only works on user-created patients)."""
-    if patient_id in ("PT-7421", "PT-3892", "PT-5163"):
+    if patient_id in ("PT-7421", "PT-3892", "PT-5163", "PT-8427", "PT-2048", "PT-1847"):
         raise HTTPException(403, "Cannot delete built-in demo patients")
     fpath = os.path.join(DATA_DIR, f"{patient_id}.json")
     if not os.path.exists(fpath):
@@ -763,7 +773,7 @@ async def simplify_text(req: Request):
 @app.patch("/api/patients/{patient_id}/self_report")
 async def update_self_report(patient_id: str, req: Request):
     """Update the latest self-report text for a patient (day index from request body)."""
-    _PROTECTED = {"PT-7421", "PT-3892", "PT-5163"}
+    _PROTECTED = {"PT-7421", "PT-3892", "PT-5163", "PT-8427", "PT-2048", "PT-1847"}
     if patient_id in _PROTECTED:
         raise HTTPException(403, "Cannot modify built-in demo patients")
     body = await req.json()

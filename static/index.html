@@ -246,7 +246,7 @@
       </div>
     </div>
     <div class="p-4 border-t border-white/5 flex-shrink-0">
-      <p class="text-xs text-slate-600 leading-relaxed">7 specialized AI agents detect early deterioration across vitals, trends, and patient language.</p>
+      <p class="text-xs text-slate-600 leading-relaxed">8 Fetch.ai uAgents detect early deterioration across vitals, trends, and patient language.</p>
     </div>
   </aside>
 
@@ -869,7 +869,7 @@ const AGENT_META = {
   escalation:  { icon:'🚨', label:'Escalation',      desc:'Fetch.ai governance gate' },
 };
 const SEV_COLORS = { low:'#22c55e', medium:'#f59e0b', high:'#f97316', critical:'#ef4444', unknown:'#6b7280' };
-const BUILT_IN = new Set(['PT-7421','PT-3892','PT-5163']);
+const BUILT_IN = new Set(['PT-7421','PT-3892','PT-5163','PT-8427','PT-2048','PT-1847']);
 
 // ─── App state ────────────────────────────────────────────────────────────────
 let patients = [];
@@ -878,6 +878,38 @@ let analysisRunning = false;
 let agentsDone = 0;
 let currentSbar = '';
 let deepgramEnabled = false;
+
+// Per-patient cache: pid → full pipeline state so switching patients preserves results
+const patientCache = {};
+
+function savePatientState(pid, partial) {
+  patientCache[pid] = Object.assign(patientCache[pid] || {}, partial);
+}
+
+function restorePatientState(pid) {
+  const c = patientCache[pid];
+  if (!c || !c.pipelineComplete) return false;
+  // Restore agent cards
+  document.getElementById('pipeline-section').classList.remove('hidden');
+  agentsDone = 0;
+  resetAgentCards();
+  (c.agents || []).forEach(({id, brief, elapsed}) => setAgentComplete(id, brief, elapsed));
+  // Restore risk + sbar sections
+  if (c.riskScore !== undefined) {
+    renderRisk({
+      risk_score: c.riskScore,
+      risk_level: c.riskLevel,
+      recommended_action: c.recommendedAction,
+      time_sensitivity: c.timeSensitivity,
+    });
+    renderEscalation(c.escalationLevel ?? 0, c.escalationRecommendation ?? '');
+  }
+  if (c.sbar) {
+    currentSbar = c.sbar;
+    renderSbar(c.sbar);
+  }
+  return true;
+}
 
 // ─── New-patient wizard state ─────────────────────────────────────────────────
 let npStep = 1;
@@ -961,10 +993,6 @@ async function selectPatient(pid) {
   // Show view
   document.getElementById('empty-state').classList.add('hidden');
   document.getElementById('patient-view').classList.remove('hidden');
-  document.getElementById('pipeline-section').classList.add('hidden');
-  document.getElementById('risk-section').classList.add('hidden');
-  document.getElementById('sbar-section').classList.add('hidden');
-  document.getElementById('escalation-box').classList.add('hidden');
   // Stop live monitor when switching patients
   if (liveActive) { stopLiveMonitor(); document.getElementById('live-monitor').classList.add('hidden'); }
   // Close research panel and reset caches on patient switch
@@ -976,6 +1004,7 @@ async function selectPatient(pid) {
   // Reset SBAR mode caches
   sbarMode = 'clinical'; currentSbarSimple = '';
   document.getElementById('sbar-simplify-status').classList.add('hidden');
+  document.getElementById('escalation-box').classList.add('hidden');
 
   // Fill header
   document.getElementById('pt-name').textContent = selectedPatient.name;
@@ -1000,7 +1029,15 @@ async function selectPatient(pid) {
   } else { badge.classList.add('hidden'); }
 
   renderSparklines(selectedPatient.sensor_history);
-  resetPipeline();
+
+  // Restore cached pipeline results if this patient was previously analyzed
+  if (!restorePatientState(pid)) {
+    // No cache — show blank pipeline so user can run analysis
+    document.getElementById('pipeline-section').classList.add('hidden');
+    document.getElementById('risk-section').classList.add('hidden');
+    document.getElementById('sbar-section').classList.add('hidden');
+    resetPipeline();
+  }
 }
 
 async function deleteCurrentPatient() {
@@ -1324,7 +1361,7 @@ function initAgentCards() {
   });
 }
 
-function resetPipeline() {
+function resetAgentCards() {
   agentsDone = 0; updateProgress(0);
   Object.entries(AGENT_META).forEach(([id, meta]) => {
     const card = document.getElementById(`card-${id}`);
@@ -1332,6 +1369,10 @@ function resetPipeline() {
     card.className = CARD_CLASS_BASE;
     card.innerHTML = _cardIdleHTML(meta);
   });
+}
+
+function resetPipeline() {
+  resetAgentCards();
 }
 
 function setAgentRunning(id) {
@@ -1662,11 +1703,20 @@ function runAnalysis() {
   document.getElementById('sbar-simplify-status').classList.add('hidden');
   resetPipeline();
 
-  const es = new EventSource(`/api/analyze/${selectedPatient.id}`);
+  const pid = selectedPatient.id;
+  // Start a fresh cache entry for this run
+  patientCache[pid] = { agents: [], pipelineComplete: false };
+
+  const es = new EventSource(`/api/analyze/${pid}`);
   es.onmessage = (e) => {
     let d; try { d = JSON.parse(e.data); } catch { return; }
     if (d.type === 'agent_start') setAgentRunning(d.agent_id);
-    else if (d.type === 'agent_complete') setAgentComplete(d.agent_id, d.brief, d.elapsed);
+    else if (d.type === 'agent_complete') {
+      setAgentComplete(d.agent_id, d.brief, d.elapsed);
+      // Cache each agent result
+      (patientCache[pid].agents = patientCache[pid].agents || [])
+        .push({ id: d.agent_id, brief: d.brief, elapsed: d.elapsed });
+    }
     else if (d.type === 'pipeline_complete') {
       renderRisk(d); renderSbar(d.sbar);
       renderEscalation(d.escalation_level ?? 0, d.escalation_recommendation ?? '');
@@ -1677,6 +1727,17 @@ function runAnalysis() {
         note.innerHTML = `🔬 Literature incorporated: <span class="text-slate-400">${esc(src)}</span>`;
         document.getElementById('sbar-section').prepend(note);
       }
+      // Save complete state so this patient can be restored when switching back
+      savePatientState(pid, {
+        pipelineComplete: true,
+        riskScore: d.risk_score,
+        riskLevel: d.risk_level,
+        sbar: d.sbar,
+        recommendedAction: d.recommended_action,
+        timeSensitivity: d.time_sensitivity,
+        escalationLevel: d.escalation_level ?? 0,
+        escalationRecommendation: d.escalation_recommendation ?? '',
+      });
       es.close(); finishRun(d);
     } else if (d.type === 'error') {
       showError(d.message); es.close(); finishRun(null);
@@ -1704,23 +1765,29 @@ function showError(msg) {
 }
 
 // ─── Risk + SBAR display ──────────────────────────────────────────────────────
-function renderRisk(d) {
-  const score = d.risk_score ?? 0;
-  const level = d.risk_level ?? 'unknown';
-  const color = SEV_COLORS[level] || '#6b7280';
-  const rs = document.getElementById('risk-section');
+function renderRisk(d, level, color) {
+  // Accepts either a pipeline_complete event object, or (score, level) directly
+  const score = (typeof d === 'object' && d !== null) ? (d.risk_score ?? 0) : d;
+  const lvl   = level ?? ((typeof d === 'object' && d) ? (d.risk_level ?? 'unknown') : 'unknown');
+  const clr   = color ?? (SEV_COLORS[lvl] || '#6b7280');
+  const rs    = document.getElementById('risk-section');
   rs.classList.remove('hidden');
-  rs.className = `glass rounded-2xl p-6 fade-in border risk-${level}`;
-  document.getElementById('gauge-container').innerHTML = buildGauge(score, level);
-  document.getElementById('risk-level-label').textContent = `${level.toUpperCase()} RISK`;
-  document.getElementById('risk-level-label').style.color = color;
-  if (d.recommended_action) {
-    document.getElementById('risk-action-box').classList.remove('hidden');
-    document.getElementById('risk-action-box').className = `rounded-xl p-3 border text-sm risk-${level}`;
-    document.getElementById('risk-action-text').textContent = d.recommended_action;
-    document.getElementById('risk-action-text').style.color = color;
+  rs.className = `glass rounded-2xl p-6 fade-in border risk-${lvl}`;
+  document.getElementById('gauge-container').innerHTML = buildGauge(score, lvl);
+  document.getElementById('risk-level-label').textContent = `${lvl.toUpperCase()} RISK`;
+  document.getElementById('risk-level-label').style.color = clr;
+  const action = (typeof d === 'object' && d) ? d.recommended_action : null;
+  const timing = (typeof d === 'object' && d) ? d.time_sensitivity : null;
+  const actionBox = document.getElementById('risk-action-box');
+  if (action) {
+    actionBox.classList.remove('hidden');
+    actionBox.className = `rounded-xl p-3 border text-sm risk-${lvl}`;
+    document.getElementById('risk-action-text').textContent = action;
+    document.getElementById('risk-action-text').style.color = clr;
     document.getElementById('risk-timing-text').textContent =
-      'Time sensitivity: ' + (d.time_sensitivity||'').replace(/_/g,' ').toUpperCase();
+      'Time sensitivity: ' + (timing||'').replace(/_/g,' ').toUpperCase();
+  } else {
+    actionBox.classList.add('hidden');
   }
 }
 

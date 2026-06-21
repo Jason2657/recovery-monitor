@@ -35,7 +35,12 @@ last_results: dict = {}   # patient_id -> {risk_score, risk_level, timestamp}
 
 # ─── Clients (lazy-init) ──────────────────────────────────────────────────────
 _anthropic_client: anthropic.Anthropic | None = None
-DEEPGRAM_API_KEY = os.environ.get("DEEPGRAM_API_KEY", "")
+DEEPGRAM_API_KEY      = os.environ.get("DEEPGRAM_API_KEY", "")
+BROWSERBASE_API_KEY   = os.environ.get("BROWSERBASE_API_KEY", "")
+BROWSERBASE_PROJECT_ID = os.environ.get("BROWSERBASE_PROJECT_ID", "")
+
+# research results cache: patient_id -> dict
+research_cache: dict = {}
 
 
 def get_anthropic_client() -> anthropic.Anthropic:
@@ -110,6 +115,7 @@ async def status():
     return JSONResponse({
         "api_key_set": bool(api_key),
         "deepgram_key_set": bool(dg_key),
+        "browserbase_key_set": bool(os.environ.get("BROWSERBASE_API_KEY", "")),
         "model": "claude-opus-4-8",
     })
 
@@ -463,6 +469,80 @@ async def analyze(patient_id: str):
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+# ─── Routes: web research ─────────────────────────────────────────────────────
+
+@app.get("/api/research/{patient_id}")
+async def research(patient_id: str):
+    """
+    Stream medical web research for a patient via SSE.
+    Fetches PubMed articles + Mayo Clinic + Cleveland Clinic pages,
+    then synthesizes with Claude into structured clinical knowledge.
+    Results are cached in memory.
+    """
+    patients = all_patients()
+    if patient_id not in patients:
+        raise HTTPException(404, "Patient not found")
+
+    try:
+        client = get_anthropic_client()
+    except RuntimeError as e:
+        raise HTTPException(500, str(e))
+
+    profile = patients[patient_id]["profile"]
+    bb_key     = os.environ.get("BROWSERBASE_API_KEY", "")
+    bb_project = os.environ.get("BROWSERBASE_PROJECT_ID", "")
+
+    async def event_stream():
+        from web_research import research_patient
+
+        async def progress(source: str, status: str):
+            yield f"data: {json.dumps({'type': 'progress', 'source': source, 'status': status}, default=str)}\n\n"
+
+        # We need a generator-friendly callback
+        q: asyncio.Queue = asyncio.Queue()
+
+        async def cb(source: str, status: str):
+            await q.put({"type": "progress", "source": source, "status": status})
+
+        async def run_research():
+            try:
+                result = await research_patient(
+                    profile=profile,
+                    anthropic_client=client,
+                    bb_key=bb_key,
+                    bb_project=bb_project,
+                    progress_cb=cb,
+                )
+                research_cache[patient_id] = result
+                await q.put({"type": "research_complete", "data": result})
+            except Exception as e:
+                await q.put({"type": "error", "message": str(e)})
+
+        task = asyncio.create_task(run_research())
+
+        while True:
+            item = await q.get()
+            yield f"data: {json.dumps(item, default=str)}\n\n"
+            if item.get("type") in ("research_complete", "error"):
+                break
+
+        await task  # ensure cleanup
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@app.get("/api/research/{patient_id}/cached")
+async def get_cached_research(patient_id: str):
+    """Return cached research results without re-fetching."""
+    if patient_id not in research_cache:
+        raise HTTPException(404, "No research cached for this patient — run /api/research/{id} first")
+    return JSONResponse(research_cache[patient_id])
 
 
 # ─── Routes: logs ─────────────────────────────────────────────────────────────

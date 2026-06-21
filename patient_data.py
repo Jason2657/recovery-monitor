@@ -305,20 +305,20 @@ _eleanor_history = [
      "rr_breaths_per_min": 14, "temp_c": 36.9, "systolic_bp": 126, "diastolic_bp": 78,
      "weight_lbs": 162.2, "steps": 220, "sleep_hours": 6.8, "sleep_interruptions": 3},
     {"day": 3, "date": "2026-06-16", "hr_resting_bpm": 74, "hr_avg_bpm": 79, "spo2_pct": 97,
-     "rr_breaths_per_min": 15, "temp_c": 37.0, "systolic_bp": 128, "diastolic_bp": 80,
+     "rr_breaths_per_min": 15, "temp_c": 37.1, "systolic_bp": 128, "diastolic_bp": 80,
      "weight_lbs": 162.0, "steps": 350, "sleep_hours": 7.0, "sleep_interruptions": 2},
-    {"day": 4, "date": "2026-06-17", "hr_resting_bpm": 74, "hr_avg_bpm": 80, "spo2_pct": 97,
-     "rr_breaths_per_min": 15, "temp_c": 37.2, "systolic_bp": 130, "diastolic_bp": 82,
-     "weight_lbs": 162.4, "steps": 420, "sleep_hours": 6.5, "sleep_interruptions": 3},
-    {"day": 5, "date": "2026-06-18", "hr_resting_bpm": 75, "hr_avg_bpm": 81, "spo2_pct": 97,
-     "rr_breaths_per_min": 16, "temp_c": 37.4, "systolic_bp": 132, "diastolic_bp": 84,
-     "weight_lbs": 162.6, "steps": 380, "sleep_hours": 6.0, "sleep_interruptions": 4},
-    {"day": 6, "date": "2026-06-19", "hr_resting_bpm": 75, "hr_avg_bpm": 81, "spo2_pct": 97,
-     "rr_breaths_per_min": 16, "temp_c": 37.5, "systolic_bp": 134, "diastolic_bp": 84,
-     "weight_lbs": 162.8, "steps": 290, "sleep_hours": 5.8, "sleep_interruptions": 4},
-    {"day": 7, "date": "2026-06-20", "hr_resting_bpm": 76, "hr_avg_bpm": 82, "spo2_pct": 97,
-     "rr_breaths_per_min": 17, "temp_c": 37.7, "systolic_bp": 136, "diastolic_bp": 86,
-     "weight_lbs": 163.0, "steps": 250, "sleep_hours": 5.5, "sleep_interruptions": 5},
+    {"day": 4, "date": "2026-06-17", "hr_resting_bpm": 76, "hr_avg_bpm": 82, "spo2_pct": 97,
+     "rr_breaths_per_min": 16, "temp_c": 37.4, "systolic_bp": 130, "diastolic_bp": 82,
+     "weight_lbs": 162.4, "steps": 390, "sleep_hours": 6.5, "sleep_interruptions": 3},
+    {"day": 5, "date": "2026-06-18", "hr_resting_bpm": 82, "hr_avg_bpm": 88, "spo2_pct": 97,
+     "rr_breaths_per_min": 18, "temp_c": 37.9, "systolic_bp": 134, "diastolic_bp": 84,
+     "weight_lbs": 162.6, "steps": 310, "sleep_hours": 5.8, "sleep_interruptions": 4},
+    {"day": 6, "date": "2026-06-19", "hr_resting_bpm": 90, "hr_avg_bpm": 96, "spo2_pct": 97,
+     "rr_breaths_per_min": 20, "temp_c": 38.4, "systolic_bp": 136, "diastolic_bp": 86,
+     "weight_lbs": 163.0, "steps": 220, "sleep_hours": 5.2, "sleep_interruptions": 5},
+    {"day": 7, "date": "2026-06-20", "hr_resting_bpm": 98, "hr_avg_bpm": 104, "spo2_pct": 96,
+     "rr_breaths_per_min": 22, "temp_c": 38.9, "systolic_bp": 138, "diastolic_bp": 88,
+     "weight_lbs": 163.4, "steps": 140, "sleep_hours": 4.8, "sleep_interruptions": 7},
 ]
 
 _eleanor_reports = [
@@ -366,15 +366,15 @@ _robert_history = [
     {"day": 4, "date": "2026-06-17", "hr_resting_bpm": 85, "hr_avg_bpm": 91, "spo2_pct": 93,
      "rr_breaths_per_min": 20, "temp_c": 37.2, "systolic_bp": 140, "diastolic_bp": 88,
      "weight_lbs": 183.0, "steps": 1200, "sleep_hours": 6.0, "sleep_interruptions": 3},
-    {"day": 5, "date": "2026-06-18", "hr_resting_bpm": 87, "hr_avg_bpm": 93, "spo2_pct": 92,
-     "rr_breaths_per_min": 21, "temp_c": 37.2, "systolic_bp": 142, "diastolic_bp": 88,
-     "weight_lbs": 183.2, "steps": 950, "sleep_hours": 5.8, "sleep_interruptions": 4},
-    {"day": 6, "date": "2026-06-19", "hr_resting_bpm": 88, "hr_avg_bpm": 94, "spo2_pct": 92,
-     "rr_breaths_per_min": 22, "temp_c": 37.3, "systolic_bp": 144, "diastolic_bp": 90,
-     "weight_lbs": 183.0, "steps": 700, "sleep_hours": 5.2, "sleep_interruptions": 4},
-    {"day": 7, "date": "2026-06-20", "hr_resting_bpm": 90, "hr_avg_bpm": 96, "spo2_pct": 91,
-     "rr_breaths_per_min": 23, "temp_c": 37.4, "systolic_bp": 146, "diastolic_bp": 90,
-     "weight_lbs": 183.2, "steps": 480, "sleep_hours": 5.0, "sleep_interruptions": 5},
+    {"day": 5, "date": "2026-06-18", "hr_resting_bpm": 90, "hr_avg_bpm": 96, "spo2_pct": 91,
+     "rr_breaths_per_min": 23, "temp_c": 37.4, "systolic_bp": 144, "diastolic_bp": 90,
+     "weight_lbs": 183.2, "steps": 820, "sleep_hours": 5.5, "sleep_interruptions": 4},
+    {"day": 6, "date": "2026-06-19", "hr_resting_bpm": 94, "hr_avg_bpm": 100, "spo2_pct": 89,
+     "rr_breaths_per_min": 25, "temp_c": 37.5, "systolic_bp": 148, "diastolic_bp": 92,
+     "weight_lbs": 183.0, "steps": 480, "sleep_hours": 4.8, "sleep_interruptions": 5},
+    {"day": 7, "date": "2026-06-20", "hr_resting_bpm": 98, "hr_avg_bpm": 106, "spo2_pct": 87,
+     "rr_breaths_per_min": 27, "temp_c": 37.6, "systolic_bp": 152, "diastolic_bp": 94,
+     "weight_lbs": 183.4, "steps": 250, "sleep_hours": 4.2, "sleep_interruptions": 6},
 ]
 
 _robert_reports = [
@@ -519,6 +519,62 @@ _grace_reports = [
 ]
 
 
+# ─── Patient 6: Charles Gordon — Post-Appendectomy, Day 7, BENIGN (truly fine) ─
+# Scenario: Routine laparoscopic appendectomy. Uneventful recovery. All vitals
+# normal throughout; activity and sleep improving daily. No escalation warranted.
+
+_charles_profile = {
+    "id": "PT-1847",
+    "name": "Charles Gordon",
+    "age": 45,
+    "sex": "Male",
+    "diagnosis": "Laparoscopic Appendectomy for Acute Appendicitis",
+    "primary_condition": "post_surgical",
+    "discharge_date": "2026-06-14",
+    "medications": ["Acetaminophen 500mg PRN", "Ibuprofen 400mg PRN"],
+    "baseline_hr_bpm": 68,
+    "baseline_spo2_pct": 99,
+    "baseline_weight_lbs": 168.0,
+    "risk_factors": ["None significant"],
+    "30day_readmission_risk": "Low (Risk Score: 1/10)",
+    "ground_truth_escalate": False,
+}
+
+_charles_history = [
+    {"day": 1, "date": "2026-06-15", "hr_resting_bpm": 72, "hr_avg_bpm": 78, "spo2_pct": 98,
+     "rr_breaths_per_min": 14, "temp_c": 37.1, "systolic_bp": 122, "diastolic_bp": 76,
+     "weight_lbs": 168.0, "steps": 320, "sleep_hours": 7.0, "sleep_interruptions": 1},
+    {"day": 2, "date": "2026-06-16", "hr_resting_bpm": 70, "hr_avg_bpm": 76, "spo2_pct": 98,
+     "rr_breaths_per_min": 14, "temp_c": 36.9, "systolic_bp": 120, "diastolic_bp": 76,
+     "weight_lbs": 168.0, "steps": 620, "sleep_hours": 7.2, "sleep_interruptions": 1},
+    {"day": 3, "date": "2026-06-17", "hr_resting_bpm": 69, "hr_avg_bpm": 75, "spo2_pct": 99,
+     "rr_breaths_per_min": 13, "temp_c": 36.8, "systolic_bp": 118, "diastolic_bp": 74,
+     "weight_lbs": 167.8, "steps": 1100, "sleep_hours": 7.5, "sleep_interruptions": 1},
+    {"day": 4, "date": "2026-06-18", "hr_resting_bpm": 68, "hr_avg_bpm": 74, "spo2_pct": 99,
+     "rr_breaths_per_min": 13, "temp_c": 36.7, "systolic_bp": 120, "diastolic_bp": 76,
+     "weight_lbs": 168.0, "steps": 1800, "sleep_hours": 7.4, "sleep_interruptions": 0},
+    {"day": 5, "date": "2026-06-19", "hr_resting_bpm": 67, "hr_avg_bpm": 73, "spo2_pct": 99,
+     "rr_breaths_per_min": 13, "temp_c": 36.7, "systolic_bp": 118, "diastolic_bp": 74,
+     "weight_lbs": 167.8, "steps": 2400, "sleep_hours": 7.6, "sleep_interruptions": 0},
+    {"day": 6, "date": "2026-06-20", "hr_resting_bpm": 67, "hr_avg_bpm": 72, "spo2_pct": 99,
+     "rr_breaths_per_min": 13, "temp_c": 36.8, "systolic_bp": 120, "diastolic_bp": 76,
+     "weight_lbs": 168.0, "steps": 2900, "sleep_hours": 7.8, "sleep_interruptions": 0},
+    {"day": 7, "date": "2026-06-21", "hr_resting_bpm": 66, "hr_avg_bpm": 71, "spo2_pct": 99,
+     "rr_breaths_per_min": 13, "temp_c": 36.7, "systolic_bp": 118, "diastolic_bp": 74,
+     "weight_lbs": 167.6, "steps": 3400, "sleep_hours": 7.8, "sleep_interruptions": 0},
+]
+
+_charles_reports = [
+    {"day": 1, "text": "Sore but manageable. Took one ibuprofen this morning. Walked to the kitchen a few times. Glad the surgery went smoothly and I'm home."},
+    {"day": 2, "text": "Better than yesterday. Incision sites a bit tender but the bandages look fine. Ate a full meal for the first time. Short walk around the apartment."},
+    {"day": 3, "text": "Feeling pretty good. The soreness is really fading. Walked around the block twice. No fever, sleeping well. Incisions look clean."},
+    {"day": 4, "text": "Energy is coming back fast. Did some light work from home on the laptop. Incisions barely bother me now. Feeling like myself again."},
+    {"day": 5, "text": "Great day. Long walk this afternoon, appetite is totally back. Didn't need any pain meds today at all. Incisions are healing nicely — no redness."},
+    {"day": 6, "text": "Feeling completely normal. Did some grocery shopping, no problem. No issues at all — just still being careful about lifting heavy things."},
+    {"day": 7, "text": "I honestly feel 100%. Went on a 45-minute walk today and felt great. Barely even thinking about the surgery anymore. Really happy with how recovery has gone."},
+]
+
+
 # ─── Unified patients dict ────────────────────────────────────────────────────
 
 PATIENTS = {
@@ -546,6 +602,11 @@ PATIENTS = {
         "profile": _grace_profile,
         "sensor_history": _grace_history,
         "self_reports": _grace_reports,
+    },
+    "PT-1847": {
+        "profile": _charles_profile,
+        "sensor_history": _charles_history,
+        "self_reports": _charles_reports,
     },
 }
 

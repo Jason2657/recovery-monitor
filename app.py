@@ -83,8 +83,11 @@ threading.Thread(target=_arduino_reader, daemon=True).start()
 if os.path.isdir("static"):
     app.mount("/static", StaticFiles(directory="static"), name="static")
 
+# ─── Built-in (non-deletable) patient IDs ────────────────────────────────────
+BUILT_IN_PATIENTS = {"PT-7421", "PT-3892", "PT-5163", "PT-8427", "PT-2048", "PT-1847"}
+
 # ─── In-memory caches ─────────────────────────────────────────────────────────
-last_results: dict = {}   # patient_id -> {risk_score, risk_level, timestamp}
+last_results: dict = {}   # patient_id -> {risk_score, risk_level, timestamp}; populated after pipeline runs
 _live_cache:  dict = {}   # patient_id -> latest live payload from /api/live SSE
 
 # ─── Clients (lazy-init) ──────────────────────────────────────────────────────
@@ -197,7 +200,7 @@ async def get_patients():
         p["days_post_discharge"] = len(pdata["sensor_history"])
         p["sensor_history"] = pdata["sensor_history"]
         p["latest_self_report"] = pdata["self_reports"][-1]["text"] if pdata["self_reports"] else ""
-        p["is_custom"] = pid not in ("PT-7421", "PT-3892", "PT-5163")
+        p["is_custom"] = pid not in BUILT_IN_PATIENTS
         if pid in last_results:
             p["last_risk"] = last_results[pid]
         result.append(p)
@@ -255,7 +258,7 @@ async def create_patient(request: Request):
 @app.delete("/api/patients/{patient_id}")
 async def delete_patient(patient_id: str):
     """Delete a custom patient (only works on user-created patients)."""
-    if patient_id in ("PT-7421", "PT-3892", "PT-5163"):
+    if patient_id in BUILT_IN_PATIENTS:
         raise HTTPException(403, "Cannot delete built-in demo patients")
     fpath = os.path.join(DATA_DIR, f"{patient_id}.json")
     if not os.path.exists(fpath):
@@ -483,7 +486,7 @@ async def live_stream(patient_id: str):
 # ─── Routes: analysis pipeline (SSE) ─────────────────────────────────────────
 
 @app.get("/api/analyze/{patient_id}")
-async def analyze(patient_id: str, mesh: bool = False):
+async def analyze(patient_id: str, mesh: bool = True):
     patients = all_patients()
     if patient_id not in patients:
         raise HTTPException(404, "Patient not found")
@@ -764,7 +767,7 @@ async def simplify_text(req: Request):
 @app.patch("/api/patients/{patient_id}/self_report")
 async def update_self_report(patient_id: str, req: Request):
     """Update the latest self-report text for a patient (day index from request body)."""
-    _PROTECTED = {"PT-7421", "PT-3892", "PT-5163"}
+    _PROTECTED = BUILT_IN_PATIENTS
     if patient_id in _PROTECTED:
         raise HTTPException(403, "Cannot modify built-in demo patients")
     body = await req.json()

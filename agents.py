@@ -490,17 +490,25 @@ Weight Δ={trends.get('weight_change_lbs_7days','?')} lbs | Activity −{trends.
 Patient red flags: {self_report_out.get('red_flag_phrases', [])}
 Trend convergence: {trend_out.get('trend_convergence', 'N/A')}
 """
-    debate_summary = "; ".join(
-        f"{r.get('finding','?')} → {r.get('verdict','?')}"
-        for r in (skeptic_out.get("debate") or [])
-    )
+    # Build full debate transcript so the Reconciler can respond round-by-round
+    debate_rounds = skeptic_out.get("debate") or []
+    debate_transcript = "\n".join(
+        f"  Round {i+1} [{r.get('finding','?')}]\n"
+        f"    Hypothesis ({r.get('hypothesis_strength','?')}): {r.get('hypothesis','')}\n"
+        f"    Evidence for: {r.get('evidence_for_hypothesis','')}\n"
+        f"    Skeptic self-rebuttal: {r.get('rebuttal','')}\n"
+        f"    Skeptic verdict: {r.get('verdict','?')}"
+        for i, r in enumerate(debate_rounds)
+    ) or "  No debate rounds available."
     evidence_against = f"""
-AGAINST: {skeptic_out.get('overall_benign_narrative', '')}
+AGAINST (Skeptic Agent full debate):
 Strongest benign case: {skeptic_out.get('strongest_hypothesis', skeptic_out.get('strongest_benign_case', ''))}
-Skeptic verdict: {skeptic_out.get('overall_verdict', 'N/A')}
+Skeptic overall verdict: {skeptic_out.get('overall_verdict', 'N/A')}
 Skeptic confidence: {skeptic_out.get('skeptic_confidence', 'N/A')}
-Debate outcomes: {debate_summary or 'N/A'}
-Where skepticism fails: {skeptic_out.get('where_skepticism_fails', '')}
+Where skepticism fails (per Skeptic): {skeptic_out.get('where_skepticism_fails', '')}
+
+DEBATE TRANSCRIPT:
+{debate_transcript}
 """
 
     from patient_data import CLINICAL_KNOWLEDGE_BASE
@@ -539,6 +547,10 @@ Where skepticism fails: {skeptic_out.get('where_skepticism_fails', '')}
         "Return valid JSON only. Every field is required — never omit risk_score or risk_level."
     )
     upstream_quality = f"Upstream agent errors: {upstream_parse_errors}/5 | Data days available: {days_post_discharge}"
+    round_labels = "\n".join(
+        f"  Round {i+1}: \"{r.get('finding','?')}\""
+        for i, r in enumerate(debate_rounds)
+    ) or "  (no rounds)"
     user = f"""Reconcile all evidence for {patient_profile['name']}, Day {days_post_discharge} post-{patient_profile['diagnosis']}.
 
 {evidence_for}
@@ -546,22 +558,36 @@ Where skepticism fails: {skeptic_out.get('where_skepticism_fails', '')}
 
 DATA QUALITY: {upstream_quality}
 
-Weigh convergent evidence against skeptic counterarguments. You MUST assign a concrete risk_score (0-100) and risk_level — never leave these as null, 0 by default, or 'unknown'. Even with limited data, make a calibrated estimate and note uncertainty in confidence and rationale.
+Your task has two parts:
+1. For EACH debate round above, rule on the Skeptic's hypothesis — ACCEPT it (it lowers your score) or OVERRULE it (it does not). Be specific: cite the data that makes you accept or reject.
+2. Produce the final calibrated risk assessment.
+
+Debate rounds to rule on:
+{round_labels}
 
 Return JSON ONLY (all fields required):
 {{
+  "debate_rebuttals": [
+    {{
+      "round": <1-based integer matching the Skeptic's round>,
+      "finding": "the contested finding",
+      "skeptic_hypothesis": "Skeptic's benign explanation in one sentence",
+      "ruling": "accepted|overruled",
+      "reasoning": "1-2 sentences: specific data that drives your ruling, cite numbers"
+    }}
+  ],
   "risk_score": <integer 1-100, never 0 unless truly no risk signal at all>,
   "risk_level": "low|moderate|high|critical",
-  "primary_drivers": ["specific driver with supporting numbers", "second driver with numbers"],
-  "mitigating_factors": ["valid skeptic point that appropriately reduced the score"],
-  "convergence_argument": "why simultaneous trends across 5 independent streams outweigh individual benign explanations",
-  "skeptic_rebuttal": "specific response to the skeptic's strongest argument",
+  "primary_drivers": ["specific driver with supporting numbers", "second driver"],
+  "mitigating_factors": ["valid skeptic point that actually reduced the score"],
+  "convergence_argument": "why simultaneous findings across 5 independent streams cannot all be coincidental",
+  "skeptic_rebuttal": "direct response to the Skeptic's overall_benign_narrative",
   "confidence": "low|medium|high (per the definitions above)",
   "recommended_action": "specific clinical action in 1-2 sentences",
   "time_sensitivity": "immediately|within_4h|within_24h|within_48h|routine",
   "escalation_level": <integer 0-3 matching the escalation protocol levels above>,
   "escalation_recommendation": "Full text starting with 'it would be appropriate to...' — do NOT claim the AI takes action",
-  "rationale": "4-6 sentence explicit reasoning chain: data quality → signal convergence → score justification → confidence rationale"
+  "rationale": "4-6 sentence reasoning chain: data quality → signal convergence → score justification → confidence rationale"
 }}"""
 
     result = _parse_json(_call(client, system, user, max_tokens=4000))
@@ -748,6 +774,8 @@ def extract_brief(agent_id: str, result) -> dict:
             "time_sensitivity": result.get("time_sensitivity", ""),
             "rationale": result.get("rationale", ""),
             "skeptic_rebuttal": result.get("skeptic_rebuttal", ""),
+            "convergence_argument": result.get("convergence_argument", ""),
+            "debate_rebuttals": (result.get("debate_rebuttals") or [])[:5],
             "escalation_level": result.get("escalation_level", 0),
             "escalation_recommendation": result.get("escalation_recommendation", ""),
         }
@@ -758,7 +786,16 @@ def extract_brief(agent_id: str, result) -> dict:
 
 # ─── Full pipeline orchestrator ───────────────────────────────────────────────
 
-_ANALYSIS_LABELS = {"signal": "Signal Agent", "trend": "Trend Agent", "self_report": "Self-Report NLP"}
+_STAGE_LABELS = {
+    "signal":      "Signal Agent",
+    "trend":       "Trend Agent",
+    "self_report": "Self-Report NLP",
+    "knowledge":   "Medical Knowledge (RAG)",
+    "skeptic":     "Adversarial Skeptic",
+    "reconciler":  "Reconciler / Judge",
+    "brief":       "Clinical Brief (SBAR)",
+    "escalation":  "Escalation (Fetch)",
+}
 
 
 def run_full_pipeline(
@@ -767,189 +804,171 @@ def run_full_pipeline(
     callbacks: dict = None,
     log_dir: str = "logs",
     *,
-    use_mesh: bool = False,
+    use_mesh: bool = True,
     web_research: dict = None,
     run_judge: bool = True,
 ) -> tuple:
-    """Run the governed 7-agent pipeline, saving full reasoning to a JSON log.
+    """Run the full 8-agent pipeline.
 
-    Sponsor layers woven in (each degrades gracefully):
-      * Arize/Phoenix — the whole run is a trace; each agent step is a span, and
-        Claude calls are auto-instrumented. A self-correction loop nudges
-        ``RISK_THRESHOLD`` when the patient has a ground-truth label.
-      * Band — the Skeptic<->Reconciler round runs inside a governed BandRoom
-        (one bounded round, append-only audit), followed by a human-in-the-loop
-        escalation gate (verified-authority check).
-      * Fetch.ai — with ``use_mesh=True`` the three independent analysis agents
-        run as real uAgents in a Bureau; the Escalation uAgent is the output-path
-        worker. The web SSE path leaves ``use_mesh=False`` for low latency.
+    Primary path — Fetch.ai mesh (use_mesh=True, default):
+      All 8 agents are real uAgents in a Bureau. The Coordinator handles
+      governance (escalation gate, audit trail) — Band is not used.
+      Arize tracing wraps the whole pipeline span.
 
-    Args:
-        patient_data: dict with 'profile', 'sensor_history', 'self_reports'
-        client: anthropic.Anthropic instance
-        callbacks: {'on_start': fn(agent_id, label), 'on_complete': fn(agent_id, label, brief, elapsed)}
-        log_dir: directory to write reasoning log
-        use_mesh: route parallel analysis through the Fetch.ai uAgents mesh
-        web_research: optional structured research dict from web_research.research_patient()
-            — injected into the knowledge (RAG) agent and the SBAR brief when present
+    Fallback path — direct calls (use_mesh=False or uagents unavailable):
+      ThreadPoolExecutor fan-out for the parallel trio, then Band-governed
+      sequential stages. Degrades gracefully if any dep is missing.
 
-    Returns:
-        (full_log dict, log_file_path string)
+    Returns: (full_log dict, log_file_path string)
     """
-    on_start = (callbacks or {}).get("on_start", lambda *_: None)
+    on_start    = (callbacks or {}).get("on_start",    lambda *_: None)
     on_complete = (callbacks or {}).get("on_complete", lambda *_: None)
 
-    profile = patient_data["profile"]
-    history = patient_data["sensor_history"]
-    reports = patient_data["self_reports"]
-    current = history[-1]
-    days = len(history)
+    profile    = patient_data["profile"]
+    history    = patient_data["sensor_history"]
+    days       = len(history)
     patient_id = profile.get("id", "unknown")
 
-    # Arize/Phoenix: stand up the trace boundary once (no-op without deps/keys).
     tracing.init_tracing()
 
     full_log = {
-        "patient_id": patient_id,
-        "patient_name": profile.get("name", "Unknown"),
+        "patient_id":         patient_id,
+        "patient_name":       profile.get("name", "Unknown"),
         "analysis_timestamp": datetime.datetime.now().isoformat(),
-        "model": MODEL,
-        "mesh": False,  # set True only if the Fetch mesh actually ran (not just requested)
-        "agents": {},
+        "model":              MODEL,
+        "mesh":               False,
+        "agents":             {},
     }
-
-    def record(agent_id, label, result, elapsed):
-        brief = extract_brief(agent_id, result)
-        full_log["agents"][agent_id] = {
-            "label": label,
-            "elapsed_seconds": elapsed,
-            "brief": brief,
-            "full_output": result if not isinstance(result, str) else {"text": result},
-        }
-        return brief
-
-    def step(agent_id, label, fn, *args):
-        on_start(agent_id, label)
-        t0 = time.time()
-        with tracing.span(f"agent.{agent_id}"):
-            result = fn(*args)
-        elapsed = round(time.time() - t0, 1)
-        brief = record(agent_id, label, result, elapsed)
-        on_complete(agent_id, label, brief, elapsed)
-        return result
 
     with tracing.span("pipeline", patient_id=patient_id, mesh=bool(use_mesh)):
         trace_id = tracing.current_trace_id()
         span_id = tracing.current_span_id()  # root span id — LLM-judge evals attach here
 
-        # --- parallel analysis: 3 independent workers run concurrently --------
-        # Prefer Fetch.ai mesh (real uAgents in a Bureau) when use_mesh=True;
-        # fall back to a ThreadPoolExecutor fan-out (still parallel, no mesh overhead).
-        analyses = None
+        # ── Fetch.ai path: every stage is a real uAgent ───────────────────────
         if use_mesh:
             try:
-                from mesh import fetch_mesh
-                analyses = fetch_mesh.run_parallel_analysis_via_mesh(
-                    patient_data, client, {"on_start": on_start, "on_complete": on_complete}
-                )
-                full_log["mesh_addresses"] = fetch_mesh.mesh_status()
-                for sid in ("signal", "trend", "self_report"):
-                    record(sid, _ANALYSIS_LABELS[sid], analyses[sid], None)
-                full_log["mesh"] = True
+                from mesh import fetch_mesh as fm
+                if not fm.is_available():
+                    full_log["mesh_error"] = "uagents not installed — falling back to direct calls"
+                    use_mesh = False
+                else:
+                    mesh_result = fm.run_full_pipeline_via_mesh(
+                        patient_data, client,
+                        callbacks={"on_start": on_start, "on_complete": on_complete},
+                        web_research=web_research,
+                    )
+                    # Merge agent records produced by the coordinator
+                    full_log["agents"].update(mesh_result["full_log"]["agents"])
+                    full_log["mesh"]           = True
+                    full_log["mesh_addresses"] = mesh_result["mesh_addresses"]
+
+                    results        = mesh_result["results"]
+                    reconciler_out = results.get("reconciler", {})
+                    sbar_text      = results.get("brief", "")
+                    assessment     = mesh_result.get("assessment")
+                    gate           = mesh_result.get("gate")
+                    audit          = mesh_result["audit"]
             except Exception as exc:
                 full_log["mesh_error"] = str(exc)
-                analyses = None
+                use_mesh = False   # fall through to direct path
 
-        if analyses is None:
-            # Fan-out: all 3 analysis agents fire simultaneously
-            on_start("signal",      "Signal Agent")
-            on_start("trend",       "Trend Agent")
-            on_start("self_report", "Self-Report NLP")
-            with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
-                f_signal      = pool.submit(run_signal_agent,      current, profile, client)
-                f_trend       = pool.submit(run_trend_agent,       history, profile, client)
-                f_self_report = pool.submit(run_self_report_agent, reports, client)
+        # ── Fallback: ThreadPoolExecutor + Band ───────────────────────────────
+        if not use_mesh:
+            current = history[-1]
+            reports = patient_data["self_reports"]
+
+            def record(agent_id, label, result, elapsed):
+                brief = extract_brief(agent_id, result)
+                full_log["agents"][agent_id] = {
+                    "label":           label,
+                    "elapsed_seconds": elapsed,
+                    "brief":           brief,
+                    "full_output":     result if not isinstance(result, str) else {"text": result},
+                }
+                return brief
+
+            def step(agent_id, label, fn, *args):
+                on_start(agent_id, label)
                 t0 = time.time()
-                signal_out      = f_signal.result()
-                trend_out       = f_trend.result()
-                self_report_out = f_self_report.result()
-            elapsed_parallel = round(time.time() - t0, 1)
+                with tracing.span(f"agent.{agent_id}"):
+                    result = fn(*args)
+                elapsed = round(time.time() - t0, 1)
+                brief = record(agent_id, label, result, elapsed)
+                on_complete(agent_id, label, brief, elapsed)
+                return result
+
+            on_start("signal",      _STAGE_LABELS["signal"])
+            on_start("trend",       _STAGE_LABELS["trend"])
+            on_start("self_report", _STAGE_LABELS["self_report"])
+            with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+                f_sig = pool.submit(run_signal_agent,      current, profile, client)
+                f_trn = pool.submit(run_trend_agent,       history, profile, client)
+                f_nlp = pool.submit(run_self_report_agent, reports, client)
+                t0    = time.time()
+                signal_out, trend_out, self_report_out = f_sig.result(), f_trn.result(), f_nlp.result()
+            elapsed_p = round(time.time() - t0, 1)
             for sid, res in (("signal", signal_out), ("trend", trend_out), ("self_report", self_report_out)):
-                brief = record(sid, _ANALYSIS_LABELS[sid], res, elapsed_parallel)
-                on_complete(sid, _ANALYSIS_LABELS[sid], brief, elapsed_parallel)
-        else:
-            signal_out, trend_out, self_report_out = (
-                analyses["signal"], analyses["trend"], analyses["self_report"]
-            )
+                brief = record(sid, _STAGE_LABELS[sid], res, elapsed_p)
+                on_complete(sid, _STAGE_LABELS[sid], brief, elapsed_p)
 
-        # --- medical knowledge (RAG) — depends on all three analyses ----------
-        # Only inject the compact synthesis from web_research (not raw page text)
-        # to keep RAG token spend low.
-        knowledge_out = step("knowledge", "Medical Knowledge (RAG)", run_knowledge_agent,
-                             signal_out, trend_out, self_report_out, client, web_research, profile)
+            knowledge_out = step("knowledge", _STAGE_LABELS["knowledge"],
+                                 run_knowledge_agent,
+                                 signal_out, trend_out, self_report_out, client, web_research, profile)
 
-        # --- Band room: governed Skeptic <-> Reconciler deliberation (audited) ---
-        band = get_band_room(audit=AuditLog(echo=False))
+            band = get_band_room(audit=AuditLog(echo=False))
 
-        def skeptic_call():
-            return step("skeptic", "Adversarial Skeptic", run_skeptic_agent,
-                        signal_out, trend_out, self_report_out, knowledge_out, profile, client)
+            def skeptic_call():
+                return step("skeptic", _STAGE_LABELS["skeptic"], run_skeptic_agent,
+                            signal_out, trend_out, self_report_out, knowledge_out, profile, client)
 
-        def reconciler_call(skeptic_out):
-            return step("reconciler", "Reconciler / Judge", run_reconciler_agent,
-                        signal_out, trend_out, self_report_out, knowledge_out, skeptic_out,
-                        profile, days, client)
+            def reconciler_call(sk_out):
+                return step("reconciler", _STAGE_LABELS["reconciler"], run_reconciler_agent,
+                            signal_out, trend_out, self_report_out, knowledge_out, sk_out,
+                            profile, days, client)
 
-        analysis_summary = {
-            "severities": {
-                k: full_log["agents"].get(k, {}).get("brief", {}).get("severity")
-                for k in ("signal", "trend", "self_report", "knowledge")
-            }
-        }
-        with tracing.span("band.deliberate"):
-            delib = band.deliberate(
-                patient_id=patient_id,
-                analysis_summary=analysis_summary,
-                skeptic_call=skeptic_call,
-                reconciler_call=reconciler_call,
-                trace_id=trace_id,
-            )
-        reconciler_out = delib.reconciler_out
-        assessment = delib.assessment
+            with tracing.span("band.deliberate"):
+                delib = band.deliberate(
+                    patient_id=patient_id,
+                    analysis_summary={"severities": {
+                        k: full_log["agents"].get(k, {}).get("brief", {}).get("severity")
+                        for k in ("signal", "trend", "self_report", "knowledge")
+                    }},
+                    skeptic_call=skeptic_call,
+                    reconciler_call=reconciler_call,
+                    trace_id=trace_id,
+                )
+            reconciler_out = delib.reconciler_out
+            assessment     = delib.assessment
+            with tracing.span("band.escalation_gate"):
+                gate = band.escalation_gate(assessment)
+            audit = band.audit
 
-        # --- human-in-the-loop escalation gate (authority check + audit) ---
-        with tracing.span("band.escalation_gate"):
-            gate = band.escalation_gate(assessment)
+            sbar_text = step("brief", _STAGE_LABELS["brief"],
+                             run_brief_agent, reconciler_out, profile, days, client, web_research)
+            _run_escalation_step(full_log, audit, gate, assessment, on_start, on_complete)
 
-        # --- clinician handoff (SBAR), always produced as the assessment doc ---
-        sbar_text = step("brief", "Clinical Brief (SBAR)", run_brief_agent,
-                         reconciler_out, profile, days, client, web_research)
-
-        # --- governed escalation action (Fetch.ai uAgent on the output path) ---
-        _run_escalation_step(full_log, band.audit, gate, assessment, on_start, on_complete)
-
-    # ---- top-level fields (kept UI-compatible with dev) ----
-    full_log["risk_score"] = reconciler_out.get("risk_score", 0)
-    full_log["risk_level"] = reconciler_out.get("risk_level", "unknown")
-    full_log["sbar"] = sbar_text if isinstance(sbar_text, str) else sbar_text.get("text", "")
-    full_log["recommended_action"] = reconciler_out.get("recommended_action", "")
-    full_log["time_sensitivity"] = reconciler_out.get("time_sensitivity", "")
-    full_log["escalation_level"] = reconciler_out.get("escalation_level", 0)
+    # ── Assemble top-level log fields (same shape for both paths) ─────────────
+    full_log["risk_score"]           = reconciler_out.get("risk_score", 0)
+    full_log["risk_level"]           = reconciler_out.get("risk_level", "unknown")
+    full_log["sbar"]                 = sbar_text if isinstance(sbar_text, str) else sbar_text.get("text", "")
+    full_log["recommended_action"]   = reconciler_out.get("recommended_action", "")
+    full_log["time_sensitivity"]     = reconciler_out.get("time_sensitivity", "")
+    full_log["escalation_level"]     = reconciler_out.get("escalation_level", 0)
     full_log["escalation_recommendation"] = reconciler_out.get("escalation_recommendation", "")
     full_log["web_research_incorporated"] = bool(web_research and not web_research.get("error"))
     full_log["web_research_sources"] = [
         s.get("name") for s in (web_research or {}).get("sources_fetched", [])
     ] if web_research else []
 
-    # ---- governance + observability additions ----
-    full_log["risk_score_normalized"] = round(assessment.risk_score, 3)
-    full_log["recommend_escalation"] = assessment.recommend_escalation
-    full_log["gate_decision"] = gate.model_dump()
-    full_log["risk_threshold"] = config.get_risk_threshold()
-    full_log["trace_id"] = trace_id
+    if assessment:
+        full_log["risk_score_normalized"] = round(assessment.risk_score, 3)
+        full_log["recommend_escalation"]  = assessment.recommend_escalation
+        full_log["self_correction"]       = _run_correction_loop(profile, assessment)
+    full_log["gate_decision"]   = gate.model_dump() if gate else {}
+    full_log["risk_threshold"]  = config.get_risk_threshold()
+    full_log["trace_id"]        = trace_id
     full_log["tracing_enabled"] = tracing.is_enabled()
-    full_log["band_audit"] = band.audit.as_dicts()
-    full_log["self_correction"] = _run_correction_loop(profile, assessment)
+    full_log["band_audit"]      = audit.as_dicts() if audit else []
 
     # ---- Arize LLM-as-judge: grade output quality + log as eval feedback on the span ----
     full_log["span_id"] = span_id
@@ -965,7 +984,7 @@ def run_full_pipeline(
             full_log["llm_evals_error"] = str(exc)
 
     os.makedirs(log_dir, exist_ok=True)
-    ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    ts       = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     log_file = os.path.join(log_dir, f"{patient_id}_{ts}.json")
     with open(log_file, "w") as f:
         json.dump(full_log, f, indent=2, default=str)

@@ -1,0 +1,55 @@
+[project]
+name = "recovery-monitor"
+version = "0.1.0"
+description = "Post-surgery recovery trend-and-triage early-warning tool (decision-support, not a diagnostic device)."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Recovery Monitor Team" }]
+
+dependencies = [
+    # Agent layer — Fetch.ai uAgents (specialized, message-passing workers).
+    "uagents>=0.13",
+    # Observability + self-correction loop — Arize / Phoenix over OpenTelemetry.
+    "arize-phoenix>=4.0",
+    "openinference-instrumentation-anthropic>=0.1",
+    "opentelemetry-sdk>=1.20",
+    "opentelemetry-exporter-otlp>=1.20",
+    # LLM calls (Skeptic, Reconciler, Self-report NLP) standardize on Claude.
+    "anthropic>=0.40",
+    # Shared schemas / contract.
+    "pydantic>=2.6",
+    # Synthetic timeseries.
+    "pandas>=2.0",
+    "numpy>=1.26",
+    # Env loading.
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+]
+
+[project.scripts]
+recovery-monitor-demo = "recovery_monitor.run_demo:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/recovery_monitor"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+# uv reads [project] above directly: `uv sync` installs everything (incl. dev).
+[tool.uv]
+dev-dependencies = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+]

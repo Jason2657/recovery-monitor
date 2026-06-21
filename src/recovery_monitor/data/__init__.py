@@ -1,0 +1,1 @@
+"""Synthetic recovery-timeline generation."""

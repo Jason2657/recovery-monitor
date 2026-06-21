@@ -483,7 +483,7 @@ async def live_stream(patient_id: str):
 # ─── Routes: analysis pipeline (SSE) ─────────────────────────────────────────
 
 @app.get("/api/analyze/{patient_id}")
-async def analyze(patient_id: str, mesh: bool = False):
+async def analyze(patient_id: str, mesh: bool = True):
     patients = all_patients()
     if patient_id not in patients:
         raise HTTPException(404, "Patient not found")

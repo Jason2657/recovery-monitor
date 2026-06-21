@@ -41,6 +41,7 @@ def score_color(n: int) -> str:
 AGENT_ICONS = {
     "signal": "⚡", "trend": "📈", "self_report": "💬",
     "knowledge": "📚", "skeptic": "⚔", "reconciler": "⚖", "brief": "📋",
+    "escalation": "🚨",
 }
 
 
@@ -108,6 +109,17 @@ def on_complete(agent_id: str, label: str, brief: dict, elapsed: float):
 
     elif agent_id == "brief":
         pass  # SBAR printed separately at end
+
+    elif agent_id == "escalation":
+        # Band's human-in-the-loop gate decision + the Fetch escalation uAgent.
+        if brief.get("escalated"):
+            console.print(
+                f"   [red bold]ESCALATE[/red bold] — authority "
+                f"{'granted' if brief.get('authority_granted') else 'DENIED'}; "
+                f"care coordinator notified via Fetch uAgent."
+            )
+        else:
+            console.print(f"   [green]HELD[/green] — {escape(str(brief.get('reason', '')))}")
 
 
 # ─── Patient & sensor display ─────────────────────────────────────────────────

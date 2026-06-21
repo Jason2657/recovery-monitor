@@ -1,35 +1,29 @@
-# --- Python ---
+# Environment — never commit real keys
+.env
+
+# Python
 __pycache__/
 *.py[cod]
-*$py.class
+*.pyo
+.Python
 *.egg-info/
-.eggs/
-build/
 dist/
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-
-# --- Virtual envs ---
+build/
 .venv/
 venv/
 env/
 
-# --- Environment / secrets ---
-.env
-.env.*
-!.env.example
+# Runtime-generated files
+logs/
+data/patients/
 
-# --- Generated synthetic data (regenerate with data/synthetic.py) ---
-src/recovery_monitor/data/profiles/*.csv
-src/recovery_monitor/data/profiles/*.json
-data/profiles/*.csv
-data/profiles/*.json
-
-# --- Phoenix / Arize local traces ---
-.phoenix/
-
-# --- OS / editor ---
+# macOS
 .DS_Store
-.idea/
+.AppleDouble
+.LSOverride
+
+# IDE
 .vscode/
+.idea/
+*.swp
+*.swo

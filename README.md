@@ -1,118 +1,158 @@
-# Recovery Monitor
+# PostCare AI Monitor
 
-A post-surgery recovery **trend-and-triage early-warning tool** for patients
-recovering at home. A cheap hardware sensor (heart-rate, tilt/mobility,
-ambient-light, touch check-in, LCD) streams data; a layer of specialized agents
-watches for *slow* deterioration, argues with itself before bothering a
-clinician, and escalates with a proper clinical handoff. It is **decision-support
-that loops in humans — not a diagnostic device.** Our initial target is
-colorectal surgery recovery, where low patient mobility is a validated predictor
-of readmission, so the trend in day-to-day mobility (not any single reading) is
-the signal we care about most.
+A post-discharge **recovery trend-and-triage early-warning tool** for patients
+recovering at home. A layer of specialized agents watches for slow deterioration,
+**argues with itself before bothering a clinician**, and escalates with a proper
+clinical handoff (SBAR) under human authority.
 
-> ⚠️ Not a medical device. Every consequential action is gated on a human
-> authority check and produces an audit trail. The system surfaces concerns and
-> drafts a handoff; a clinician decides.
+This is **decision-support that loops in a human — not a diagnostic device.** It
+was originally anchored on colorectal-surgery recovery (where low patient mobility
+is a validated readmission predictor) and now spans several post-discharge
+conditions (CHF, surgical-site infection, COPD, pneumonia) plus a benign-decoy
+case the system is supposed to *not* over-escalate.
 
-## Why this shape
+## Why it's interesting
 
-Deterioration at home is usually slow. A single reading looks fine; the danger is
-the trajectory over days. And a naive alerting system cries wolf — so we build in
-an explicit **Skeptic** that argues *against* escalation before a **Reconciler**
-weighs both sides. Humans stay in the loop at the gate.
+Point-in-time vitals miss the patients who slide slowly. Five signals each drifting
+a little — resting HR creeping, sleep fragmenting, activity falling, weight rising,
+self-reports quietly minimizing — can't all be coincidence at once. The system
+surfaces *convergent* deterioration, then makes a **skeptic argue against
+escalation** to fight alert fatigue before a **reconciler** weighs both sides.
 
 ## Architecture
 
 ```
-  inputs ──→ parallel analysis ──→ Band room (governed) ──→ outputs
-
-  ┌─────────────────────┐
-  │ live sensor stream   │     ┌──────────────────────────────┐
-  │ daily self-report    │ ──▶ │ Signal agent   (acute)        │
-  │ (text / voice note)  │     │ Trend agent    (5–7 day drift)│  run
-  └─────────────────────┘     │ Self-report NLP (vague→signal) │  concurrently
-                               └──────────────┬───────────────┘
-                                              │ findings
-                          early-warning score │ (deterministic tool)
-                                              ▼
-                          ┌───────────────────────────────────┐
-                          │ BAND ROOM  (governed coordination) │
-                          │   Skeptic  ⇄  Reconciler/Judge      │
-                          │        ↓ calibrated risk + trace    │
-                          │   escalation gate (authority+audit) │
-                          └───────────────┬───────────────────┘
-                            risk high      │       benign / Skeptic wins
-                  ┌────────────────────────┘────────────────────┐
-                  ▼                                              ▼
-        Clinician brief (SBAR)                         patient LCD status only
-                  │
-                  ▼
-        Escalation uAgent (Fetch) ─→ care coordinator
-
-        ── the patient LCD is ALWAYS updated on both paths ──
-        ── the whole pipeline runs inside the Arize trace boundary ──
+  sensors + daily self-report
+        │
+        ▼
+ ┌───────────────────── Arize / Phoenix trace boundary ──────────────────────┐
+ │                                                                            │
+ │   parallel analysis  ──  Fetch.ai uAgents (independent workers)            │
+ │     Signal · Trend · Self-report NLP                                       │
+ │            │                                                               │
+ │            ▼                                                               │
+ │     Medical Knowledge (RAG over a clinical guideline base)                 │
+ │            │                                                               │
+ │            ▼   Band room  ──  governed coordination                        │
+ │     Skeptic  ⇄  Reconciler/Judge                                           │
+ │            │                                                               │
+ │            ▼   escalation gate  (verified authority + append-only audit)   │
+ │            ├─ escalate → SBAR brief → Escalation uAgent (Fetch) → coord.   │
+ │            └─ hold     → patient status only                               │
+ │                                                                            │
+ └────────────────────────────────────────────────────────────────────────────┘
+        │
+        ▼
+  self-correction: evals on the Reconciler's calls nudge ONE RISK_THRESHOLD knob
 ```
 
-See [docs/architecture.md](docs/architecture.md) for the prose walkthrough.
+### Sponsor boundaries (each is load-bearing, kept swappable)
 
-## Sponsor boundaries (each is load-bearing)
-
-| Sponsor | Role here | Where in the code |
+| Concern | Sponsor | Where it lives |
 |---|---|---|
-| **Fetch.ai uAgents** | *Builds the agents.* Each specialized worker is a Fetch uAgent (message-passing). | `agents/` — `BaseAgent.as_uagent()` is the mesh bridge; `escalation_agent.py` is the outbound notifier. |
-| **Band** | *Governs the decision.* The room where agents reconcile under verified authority and emit an audit trail. Behind an adapter so the backend is swappable. | `band/room.py` (logic), `band/adapter.py` (`LocalBandRoom` default + `RemoteBandRoom` stub), `band/audit.py`. |
-| **Arize / Phoenix** | *Observes + corrects.* Tracing over every agent step, plus the self-correction loop: evals on the Reconciler's risk calls feed back into one tunable threshold. | `observability/tracing.py`, `observability/evaluator.py`. |
+| **The agents** — specialized message-passing workers | **Fetch.ai uAgents** | [`mesh/fetch_mesh.py`](mesh/fetch_mesh.py) — the 3 analysis agents run as real `uagents.Agent`s in a `Bureau`; the Escalation uAgent is the output-path worker |
+| **The decision** — reconcile under verified authority + audit | **Band** | [`band/`](band/) — `BandRoom.deliberate` (one bounded Skeptic⇄Reconciler round) + `escalation_gate` (human-in-the-loop authority check) + append-only audit, behind a `LocalBandRoom`/`RemoteBandRoom` adapter |
+| **Observability + feedback** | **Arize / Phoenix** | [`observability/`](observability/) — every step is a span, Claude calls auto-instrument, and the self-correction loop tunes one threshold |
 
-The boundaries are clean on purpose: Fetch is the *who* (agents), Band is the
-*how decisions are made and authorized* (governance), Arize is the *did it work,
-and how do we tune it* (observability + feedback).
+Keeping these behind clean seams means any one can be swapped (e.g.
+`LocalBandRoom` → a real Band service) without disturbing the others.
+
+> **Note on Band:** the governance layer is fully implemented in-process today.
+> [`band/adapter.py`](band/adapter.py) `RemoteBandRoom` is the seam where a real
+> Band API/SDK plugs in — confirm with the organizers whether "Band" maps to a
+> specific product and drop its client there.
+
+## The agents
+
+| # | Agent | Role |
+|---|---|---|
+| 1 | Signal | Acute anomalies in today's vitals (pre-computed NEWS2 fed in) |
+| 2 | Trend | 7-day drift — the intellectual core; convergent slow decline |
+| 3 | Self-report NLP | Vague patient language → structured symptom signal |
+| 4 | Medical Knowledge (RAG) | Applies a clinical guideline base (NEWS2, CHF, SSI, COPD, SIRS, activity-decline) |
+| 5 | Skeptic | Argues **against** escalation; hunts benign explanations |
+| 6 | Reconciler / Judge | Weighs evidence vs. the skeptic → calibrated 0–100 risk |
+| 7 | Clinical Brief | SBAR handoff for a care coordinator |
+| + | Escalation (Fetch uAgent) | Governed output action — fires only on an authorized escalate |
 
 ## Setup
 
-Requires Python 3.11+.
-
 ```bash
-# with uv (preferred)
-uv sync
-
-# or with venv + pip
-python -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
-
-# configure (optional — the demo runs without any keys)
-cp .env.example .env   # then fill in keys when you wire real logic
+python3 -m venv .venv && source .venv/bin/activate   # or: uv venv && source .venv/bin/activate
+pip install -r requirements.txt                       # or: uv pip install -r requirements.txt
+cp .env.example .env                                  # then add ANTHROPIC_API_KEY
 ```
 
-The demo runs **without any API keys**: agent logic is stubbed and tracing
-no-ops gracefully when `ARIZE_*` keys are absent. Keys are only needed once you
-swap stubs for real Claude calls / remote observability / the Band API.
+Standardized on Claude (`claude-opus-4-8` by default; override with
+`ANTHROPIC_MODEL`). The client and the single `RISK_THRESHOLD` knob are centralized
+in [`config.py`](config.py).
 
 ## Run
 
-```bash
-python -m recovery_monitor.run_demo --profile deterioration
-python -m recovery_monitor.run_demo --profile benign_decoy
-# options: --speed 0.4 (watchable pace), --days 7, --quiet
-```
-
-- **`deterioration`** — slow real decline; the gate escalates by the end of the
-  week and you'll see the SBAR handoff + escalation notice.
-- **`benign_decoy`** — looks alarming mid-week, but the Skeptic catches the
-  benign explanation (travel/visitors) and the gate holds. The patient LCD still
-  updates.
-
-Run the tests (this is the day-one integration guarantee):
+**Terminal demo (shows all three sponsor tracks):**
 
 ```bash
-pytest            # test_pipeline_smoke.py runs the full pipeline end-to-end
+python run_demo.py --patient PT-7421          # CHF decompensation (should escalate)
+python run_demo.py --patient PT-2048          # benign decoy (Skeptic should win)
+python run_demo.py --patient PT-7421 --mesh   # parallel analysis via the Fetch.ai uAgents mesh
+python run_demo.py --list
 ```
 
-## Project status
+It prints the 7-agent reasoning, then the **Band escalation gate + audit trail**,
+the **Arize self-correction** result, and the SBAR brief.
 
-This is a **runnable skeleton**. The pipeline is wired end-to-end and proven by
-`tests/test_pipeline_smoke.py`; the agent *logic* is stubbed (look for
-`TODO(owner)` markers) so the team can fill in real implementations behind stable
-interfaces without breaking integration. The early-warning score tool
-(`tools/early_warning.py`) is the one piece that is fully implemented.
+**Fetch.ai mesh on its own** (boots the real Bureau, real uAgent addresses):
 
-**Who owns what:** see [docs/division-of-labor.md](docs/division-of-labor.md).
+```bash
+python -m mesh.fetch_mesh
+```
+
+**Web app** (FastAPI + SSE streaming + Deepgram voice):
+
+```bash
+python app.py        # → http://localhost:8000
+```
+
+**Observability (optional).** Tracing is a clean no-op until you turn it on:
+
+```bash
+pip install arize-phoenix && phoenix serve    # local UI at http://localhost:6006
+ENABLE_TRACING=1 python run_demo.py --patient PT-7421
+```
+
+…or point at Arize cloud with `ARIZE_API_KEY` + `ARIZE_SPACE_ID`.
+
+## The self-correction loop
+
+The only knob the feedback loop moves is `RISK_THRESHOLD`. Each patient carries a
+`ground_truth_escalate` label; after a run the evaluator grades the Reconciler's
+call and nudges the knob — a false alarm **raises** it (be calmer), a missed
+deterioration **lowers** it (be keener). Run the benign decoy (`PT-2048`) to watch
+it raise the threshold after an over-escalation.
+
+## Tests
+
+```bash
+pip install pytest && pytest -q
+```
+
+Covers the governance gate + audit, the bounded deliberation round, the
+self-correction knob, the tracing no-op fallback, and the Fetch uAgent addresses
+(16 tests, no API key required).
+
+## Repo layout
+
+```
+config.py            model + Anthropic client + the RISK_THRESHOLD knob
+schemas.py           pydantic governance contract (RiskAssessment, GateDecision, AuditRecord, …)
+agents.py            the 7 agent bodies + the governed run_full_pipeline orchestrator
+patient_data.py      synthetic patients + clinical knowledge base
+band/                Band governance: audit · room (deliberate + gate) · adapter
+observability/       Arize/Phoenix: tracing · evaluator (self-correction)
+mesh/                Fetch.ai uAgents Bureau (real message-passing workers)
+run_demo.py          sponsor-aware terminal demo
+main.py              brief terminal runner
+app.py               FastAPI web backend (SSE + Deepgram)
+static/index.html    web UI
+tests/               governance / evaluator / tracing / mesh / import tests
+```

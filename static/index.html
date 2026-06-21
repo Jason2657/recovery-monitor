@@ -1,0 +1,1300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PostCare AI Monitor</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  * { font-family: 'Inter', system-ui, sans-serif; }
+  code, .mono { font-family: 'JetBrains Mono', monospace; }
+  body { background: #080b12; color: #c8d0e0; }
+
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { background: #0d1117; }
+  ::-webkit-scrollbar-thumb { background: #2a3148; border-radius: 3px; }
+
+  .glass { background: rgba(20,24,36,0.9); border: 1px solid rgba(255,255,255,0.07); }
+
+  /* Patient list */
+  .patient-item { transition: all 0.18s ease; cursor: pointer; }
+  .patient-item:hover { background: rgba(79,142,247,0.08); border-color: rgba(79,142,247,0.3) !important; }
+  .patient-item.active { background: rgba(79,142,247,0.13); border-color: rgba(79,142,247,0.55) !important; }
+
+  /* Agent cards */
+  .agent-card { transition: border-color 0.3s ease, box-shadow 0.3s ease; }
+  .state-idle    { border-color: rgba(255,255,255,0.07); }
+  .state-running { border-color: #3b82f6; box-shadow: 0 0 16px rgba(59,130,246,0.28); animation: pulse-blue 1.6s ease-in-out infinite; }
+  .state-done-low      { border-color: #22c55e; box-shadow: 0 0 8px rgba(34,197,94,0.18); }
+  .state-done-medium   { border-color: #f59e0b; box-shadow: 0 0 8px rgba(245,158,11,0.18); }
+  .state-done-high     { border-color: #f97316; box-shadow: 0 0 10px rgba(249,115,22,0.22); }
+  .state-done-critical { border-color: #ef4444; box-shadow: 0 0 14px rgba(239,68,68,0.28); }
+  .state-done-unknown  { border-color: #6b7280; }
+
+  @keyframes pulse-blue {
+    0%,100% { box-shadow: 0 0 8px rgba(59,130,246,0.2); }
+    50%      { box-shadow: 0 0 24px rgba(59,130,246,0.55); }
+  }
+
+  /* Severity badges */
+  .badge-low      { background:rgba(34,197,94,0.14);  color:#4ade80; border:1px solid rgba(34,197,94,0.28); }
+  .badge-medium   { background:rgba(245,158,11,0.14); color:#fbbf24; border:1px solid rgba(245,158,11,0.28); }
+  .badge-high     { background:rgba(249,115,22,0.14); color:#fb923c; border:1px solid rgba(249,115,22,0.28); }
+  .badge-critical { background:rgba(239,68,68,0.14);  color:#f87171; border:1px solid rgba(239,68,68,0.28); }
+  .badge-unknown  { background:rgba(107,114,128,0.14);color:#9ca3af; border:1px solid rgba(107,114,128,0.28); }
+  .badge-moderate { background:rgba(245,158,11,0.14); color:#fbbf24; border:1px solid rgba(245,158,11,0.28); }
+
+  /* Risk section tints */
+  .risk-low      { border-color: rgba(34,197,94,0.35); }
+  .risk-moderate { border-color: rgba(245,158,11,0.35); }
+  .risk-high     { border-color: rgba(249,115,22,0.4); }
+  .risk-critical { border-color: rgba(239,68,68,0.45); }
+
+  /* Sparklines */
+  .sparkline-card { background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:10px; padding:11px 14px; }
+
+  /* SBAR formatting */
+  .sbar-content strong { color:#93c5fd; font-weight:600; display:block; margin-top:0.9rem; font-size:0.72rem; letter-spacing:0.09em; text-transform:uppercase; }
+  .sbar-content p { line-height:1.75; color:#c8d0e0; }
+  .sbar-content ol { padding-left:1.25rem; }
+  .sbar-content li { line-height:1.7; color:#c8d0e0; }
+  .sbar-content hr { border-color:rgba(255,255,255,0.08); margin:1rem 0; }
+  .sbar-content em { color:#6b7280; font-style:italic; font-size:0.78rem; }
+
+  /* Form inputs in new-patient modal */
+  .np-input {
+    width:100%; background:#0d1117; border:1px solid rgba(255,255,255,0.1);
+    border-radius:8px; padding:7px 11px; color:#e2e8f0; font-size:0.83rem;
+    transition:border-color 0.15s;
+  }
+  .np-input:focus { outline:none; border-color:#3b82f6; }
+  .np-input::placeholder { color:#374151; }
+  .np-select { appearance:none; background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%236b7280' d='M6 8L1 3h10z'/%3E%3C/svg%3E"); background-repeat:no-repeat; background-position:right 10px center; padding-right:28px; }
+  .np-label { display:block; font-size:0.72rem; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:0.07em; margin-bottom:4px; }
+  .np-cell input { width:100%; background:transparent; border:none; color:#e2e8f0; font-size:0.78rem; text-align:center; padding:4px 2px; }
+  .np-cell input:focus { outline:none; background:rgba(59,130,246,0.12); border-radius:4px; }
+  .np-cell input::placeholder { color:#2d3748; }
+
+  /* Recording button states */
+  .rec-btn { transition:all 0.2s ease; }
+  .rec-btn.idle     { background:rgba(99,102,241,0.15); color:#818cf8; border:1px solid rgba(99,102,241,0.3); }
+  .rec-btn.idle:hover { background:rgba(99,102,241,0.25); }
+  .rec-btn.recording { background:rgba(239,68,68,0.18); color:#f87171; border:1px solid rgba(239,68,68,0.4); animation:pulse-red 1.2s ease-in-out infinite; }
+  .rec-btn.transcribing { background:rgba(245,158,11,0.15); color:#fbbf24; border:1px solid rgba(245,158,11,0.3); cursor:wait; }
+  @keyframes pulse-red {
+    0%,100% { box-shadow:0 0 0 0 rgba(239,68,68,0.4); }
+    50% { box-shadow:0 0 0 6px rgba(239,68,68,0); }
+  }
+  .tts-btn { transition:all 0.18s; background:rgba(16,185,129,0.12); color:#34d399; border:1px solid rgba(16,185,129,0.25); }
+  .tts-btn:hover { background:rgba(16,185,129,0.22); }
+  .tts-btn:disabled { opacity:0.4; cursor:not-allowed; }
+
+  /* Wizard steps */
+  .wizard-step { transition:opacity 0.25s ease, transform 0.25s ease; }
+  .step-dot { transition:all 0.2s ease; }
+  .step-dot.active { background:#3b82f6; box-shadow:0 0 0 3px rgba(59,130,246,0.25); }
+  .step-dot.done { background:#22c55e; }
+  .step-dot.pending { background:#2a3148; }
+
+  /* Modals */
+  .modal-overlay { background:rgba(0,0,0,0.78); backdrop-filter:blur(5px); }
+  .modal-box { background:#0c0f19; border:1px solid rgba(255,255,255,0.09); }
+
+  /* Pipeline arrows */
+  .pipe-arrow { color:#2a3148; align-self:center; flex-shrink:0; margin:0 2px; font-size:1rem; }
+
+  @keyframes fadeIn { from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)} }
+  .fade-in { animation:fadeIn 0.35s ease forwards; }
+
+  .progress-fill { transition:width 0.45s ease; }
+</style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+<!-- ── Nav ──────────────────────────────────────────────────────────────────── -->
+<nav class="flex items-center justify-between px-5 py-2.5 border-b border-white/5 glass sticky top-0 z-40">
+  <div class="flex items-center gap-3">
+    <div class="w-7 h-7 rounded-lg flex items-center justify-center text-white text-sm font-bold"
+         style="background:linear-gradient(135deg,#3b82f6,#6366f1)">+</div>
+    <span class="font-semibold text-white text-sm">PostCare AI Monitor</span>
+    <span class="text-xs px-2 py-0.5 rounded-full border text-blue-400 border-blue-500/30 bg-blue-500/10">Multi-Agent</span>
+  </div>
+  <div class="flex items-center gap-4">
+    <button onclick="openLogsModal()" class="text-xs text-slate-400 hover:text-slate-200 transition-colors">View Logs</button>
+    <span class="mono text-xs text-slate-500">claude-opus-4-8</span>
+    <!-- Deepgram indicator -->
+    <span id="dg-badge" class="hidden text-xs px-2 py-0.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 font-medium">DG</span>
+    <div class="flex items-center gap-1.5">
+      <span id="status-dot" class="w-2 h-2 rounded-full bg-slate-600"></span>
+      <span id="status-text" class="text-xs text-slate-500">Loading…</span>
+    </div>
+  </div>
+</nav>
+
+<!-- ── Layout ────────────────────────────────────────────────────────────────── -->
+<div class="flex flex-1 overflow-hidden" style="height:calc(100vh - 48px)">
+
+  <!-- Sidebar -->
+  <aside class="w-64 flex-shrink-0 border-r border-white/5 flex flex-col overflow-hidden" style="background:#090c14">
+    <div class="p-4 flex-1 overflow-y-auto">
+      <div class="flex items-center justify-between mb-3">
+        <p class="text-xs font-semibold text-slate-500 uppercase tracking-widest">Patients</p>
+        <button onclick="openNewPatient()"
+          class="text-xs px-2.5 py-1 rounded-lg font-medium transition-all"
+          style="background:rgba(99,102,241,0.18);color:#818cf8;border:1px solid rgba(99,102,241,0.3)"
+          title="Create new patient">+ New</button>
+      </div>
+      <div id="patient-list" class="space-y-2">
+        <div class="text-slate-600 text-xs text-center py-8">Loading…</div>
+      </div>
+    </div>
+    <div class="p-4 border-t border-white/5 flex-shrink-0">
+      <p class="text-xs text-slate-600 leading-relaxed">7 specialized AI agents detect early deterioration across vitals, trends, and patient language.</p>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <main class="flex-1 overflow-y-auto">
+    <!-- Empty state -->
+    <div id="empty-state" class="flex flex-col items-center justify-center h-full text-center px-8">
+      <div class="w-16 h-16 rounded-2xl flex items-center justify-center mb-5"
+           style="background:linear-gradient(135deg,#3b82f615,#6366f115);border:1px solid rgba(99,102,241,0.2)">
+        <span class="text-3xl">🏥</span>
+      </div>
+      <h2 class="text-xl font-semibold text-slate-300 mb-2">Select a patient</h2>
+      <p class="text-slate-500 text-sm max-w-xs">Choose a patient from the sidebar or create a new one to run the 7-agent AI monitoring pipeline.</p>
+    </div>
+
+    <!-- Patient view -->
+    <div id="patient-view" class="hidden p-5 space-y-4 max-w-6xl mx-auto">
+
+      <!-- Header card -->
+      <div class="glass rounded-2xl p-5 fade-in">
+        <div class="flex items-start justify-between gap-4 flex-wrap">
+          <div>
+            <div class="flex items-center gap-3 mb-1 flex-wrap">
+              <h1 id="pt-name" class="text-xl font-bold text-white"></h1>
+              <span id="pt-risk-badge" class="hidden text-xs font-bold px-2.5 py-1 rounded-full"></span>
+              <span id="pt-custom-badge" class="hidden text-xs px-2 py-0.5 rounded-full border border-indigo-500/30 bg-indigo-500/10 text-indigo-400">Custom</span>
+            </div>
+            <p id="pt-dx" class="text-sm text-slate-400 mb-2"></p>
+            <div class="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-slate-500">
+              <span id="pt-age"></span>
+              <span id="pt-dc"></span>
+              <span id="pt-meds" class="text-slate-600 max-w-sm truncate"></span>
+            </div>
+          </div>
+          <div class="flex items-center gap-2 flex-shrink-0">
+            <button id="delete-btn" onclick="deleteCurrentPatient()"
+              class="hidden px-3 py-2 rounded-xl text-sm font-medium text-red-400 border border-red-500/25 bg-red-500/8 hover:bg-red-500/15 transition-all">
+              Delete
+            </button>
+            <button id="run-btn" onclick="runAnalysis()"
+              class="px-5 py-2.5 rounded-xl font-semibold text-sm text-white transition-all"
+              style="background:linear-gradient(135deg,#3b82f6,#6366f1);box-shadow:0 4px 20px rgba(99,102,241,0.35)">
+              ▶  Run Analysis
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Sparklines -->
+      <div>
+        <p class="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-2.5">7-Day Sensor Telemetry</p>
+        <div id="sparkline-grid" class="grid grid-cols-2 md:grid-cols-4 gap-2.5"></div>
+      </div>
+
+      <!-- Self-report + TTS -->
+      <div class="glass rounded-xl p-4 fade-in">
+        <div class="flex items-center justify-between mb-2">
+          <p class="text-xs font-semibold text-slate-500 uppercase tracking-widest">Today's Patient Check-In</p>
+          <button id="tts-report-btn" onclick="playCurrentReport()"
+            class="tts-btn flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium">
+            🔊 Play
+          </button>
+        </div>
+        <p id="pt-report" class="text-sm text-slate-300 italic leading-relaxed"></p>
+      </div>
+
+      <!-- Pipeline -->
+      <div id="pipeline-section" class="hidden">
+        <div class="flex items-center justify-between mb-3">
+          <p class="text-xs font-semibold text-slate-500 uppercase tracking-widest">Analysis Pipeline</p>
+          <div class="flex items-center gap-2">
+            <span id="pipeline-progress-text" class="text-xs text-slate-500">0 / 7 agents</span>
+            <div class="w-28 h-1.5 rounded-full bg-white/5 overflow-hidden">
+              <div id="pipeline-progress-bar" class="h-full rounded-full progress-fill bg-blue-500" style="width:0%"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Row 1 -->
+        <div class="flex gap-2 mb-1.5">
+          <div id="card-signal"      class="agent-card glass rounded-xl p-3 flex-1 state-idle"></div>
+          <div class="pipe-arrow">→</div>
+          <div id="card-trend"       class="agent-card glass rounded-xl p-3 flex-1 state-idle"></div>
+          <div class="pipe-arrow">→</div>
+          <div id="card-self_report" class="agent-card glass rounded-xl p-3 flex-1 state-idle"></div>
+          <div class="pipe-arrow">→</div>
+          <div id="card-knowledge"   class="agent-card glass rounded-xl p-3 flex-1 state-idle"></div>
+        </div>
+        <div class="flex justify-end mb-1.5 pr-3"><span class="text-slate-700 text-sm">↓</span></div>
+        <!-- Row 2 -->
+        <div class="flex gap-2 justify-end mb-5">
+          <div id="card-skeptic"    class="agent-card glass rounded-xl p-3 flex-1 state-idle"></div>
+          <div class="pipe-arrow">→</div>
+          <div id="card-reconciler" class="agent-card glass rounded-xl p-3 flex-1 state-idle"></div>
+          <div class="pipe-arrow">→</div>
+          <div id="card-brief"      class="agent-card glass rounded-xl p-3 flex-1 state-idle"></div>
+        </div>
+
+        <!-- Risk gauge -->
+        <div id="risk-section" class="hidden fade-in glass rounded-2xl p-6 border">
+          <div class="flex flex-col md:flex-row items-center gap-8">
+            <div class="flex-shrink-0 flex flex-col items-center">
+              <p class="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-3">AI Risk Score</p>
+              <div id="gauge-container"></div>
+            </div>
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-3 mb-3 flex-wrap">
+                <span id="risk-level-label" class="text-xl font-bold"></span>
+              </div>
+              <div id="risk-drivers" class="space-y-1.5 mb-4"></div>
+              <div id="risk-action-box" class="hidden rounded-xl p-3 border text-sm">
+                <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Recommended Action</p>
+                <p id="risk-action-text" class="font-semibold"></p>
+                <p id="risk-timing-text" class="text-xs mt-0.5 text-slate-400"></p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- SBAR -->
+        <div id="sbar-section" class="hidden fade-in mt-5">
+          <div class="flex items-center justify-between mb-2.5">
+            <p class="text-xs font-semibold text-slate-500 uppercase tracking-widest">SBAR Clinical Brief</p>
+            <div class="flex gap-2">
+              <button onclick="playSbar()" class="tts-btn text-xs px-2.5 py-1 rounded-lg font-medium">🔊 Play</button>
+              <button onclick="copySbar()" class="text-xs text-blue-400 hover:text-blue-300 transition-colors">Copy</button>
+            </div>
+          </div>
+          <div class="glass rounded-2xl p-6">
+            <div id="sbar-content" class="sbar-content text-sm space-y-1 leading-relaxed"></div>
+          </div>
+        </div>
+      </div><!-- /pipeline-section -->
+
+    </div><!-- /patient-view -->
+  </main>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════════ -->
+<!--  NEW PATIENT MODAL                                                        -->
+<!-- ══════════════════════════════════════════════════════════════════════════ -->
+<div id="np-modal" class="hidden fixed inset-0 modal-overlay z-50 flex items-center justify-center p-4">
+  <div class="modal-box rounded-2xl w-full max-w-3xl max-h-[90vh] flex flex-col shadow-2xl">
+
+    <!-- Modal header -->
+    <div class="flex items-center justify-between p-5 border-b border-white/7 flex-shrink-0">
+      <div>
+        <h2 class="font-bold text-white text-base">New Patient</h2>
+        <p class="text-xs text-slate-500 mt-0.5">Fill in profile and vitals, record self-reports by voice</p>
+      </div>
+      <button onclick="closeNewPatient()" class="text-slate-500 hover:text-slate-200 text-2xl leading-none transition-colors">×</button>
+    </div>
+
+    <!-- Step indicator -->
+    <div class="flex items-center justify-center gap-6 py-4 border-b border-white/5 flex-shrink-0">
+      <div class="flex items-center gap-2" onclick="gotoStep(1)" style="cursor:pointer">
+        <div id="sdot-1" class="step-dot w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white active">1</div>
+        <span id="slabel-1" class="text-xs font-semibold text-blue-400">Profile</span>
+      </div>
+      <div class="w-12 h-px bg-white/10"></div>
+      <div class="flex items-center gap-2" onclick="gotoStep(2)" style="cursor:pointer">
+        <div id="sdot-2" class="step-dot w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white pending">2</div>
+        <span id="slabel-2" class="text-xs font-semibold text-slate-500">Vital Signs</span>
+      </div>
+      <div class="w-12 h-px bg-white/10"></div>
+      <div class="flex items-center gap-2" onclick="gotoStep(3)" style="cursor:pointer">
+        <div id="sdot-3" class="step-dot w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white pending">3</div>
+        <span id="slabel-3" class="text-xs font-semibold text-slate-500">Self-Reports</span>
+      </div>
+    </div>
+
+    <!-- Modal body (scrollable) -->
+    <div class="flex-1 overflow-y-auto p-5">
+
+      <!-- ── Step 1: Profile ─────────────────────────────────────────── -->
+      <div id="np-step-1" class="wizard-step space-y-4">
+        <div class="grid grid-cols-2 gap-3">
+          <div class="col-span-2">
+            <label class="np-label">Full Name *</label>
+            <input id="np-name" class="np-input" type="text" placeholder="e.g. Margaret Sullivan">
+          </div>
+          <div>
+            <label class="np-label">Age *</label>
+            <input id="np-age" class="np-input" type="number" min="18" max="120" placeholder="72">
+          </div>
+          <div>
+            <label class="np-label">Sex *</label>
+            <select id="np-sex" class="np-input np-select">
+              <option value="Male">Male</option>
+              <option value="Female">Female</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+          <div class="col-span-2">
+            <label class="np-label">Primary Diagnosis *</label>
+            <input id="np-diagnosis" class="np-input" type="text" placeholder="e.g. Acute Decompensated Heart Failure (ADHF)">
+          </div>
+          <div>
+            <label class="np-label">Condition Type *</label>
+            <select id="np-condition" class="np-input np-select">
+              <option value="chf">Heart Failure (CHF)</option>
+              <option value="copd">COPD</option>
+              <option value="post_surgical">Post-Surgical</option>
+              <option value="general">General</option>
+            </select>
+          </div>
+          <div>
+            <label class="np-label">Discharge Date *</label>
+            <input id="np-dc-date" class="np-input" type="date" onchange="updateVitalsDates()">
+          </div>
+          <div>
+            <label class="np-label">Baseline HR (bpm)</label>
+            <input id="np-base-hr" class="np-input" type="number" placeholder="72">
+          </div>
+          <div>
+            <label class="np-label">Baseline SpO₂ (%)</label>
+            <input id="np-base-spo2" class="np-input" type="number" placeholder="97">
+          </div>
+          <div>
+            <label class="np-label">Baseline Weight (lbs)</label>
+            <input id="np-base-weight" class="np-input" type="number" placeholder="165.0">
+          </div>
+          <div>
+            <label class="np-label">30-Day Risk</label>
+            <input id="np-risk" class="np-input" type="text" placeholder="High (HF-READMIT 7/10)">
+          </div>
+        </div>
+
+        <!-- Medications -->
+        <div>
+          <div class="flex items-center justify-between mb-2">
+            <label class="np-label" style="margin:0">Medications</label>
+            <button onclick="addMed()" class="text-xs text-indigo-400 hover:text-indigo-300 transition-colors">+ Add</button>
+          </div>
+          <div id="np-meds-list" class="space-y-1.5"></div>
+        </div>
+
+        <!-- Risk factors -->
+        <div>
+          <div class="flex items-center justify-between mb-2">
+            <label class="np-label" style="margin:0">Risk Factors</label>
+            <button onclick="addRF()" class="text-xs text-indigo-400 hover:text-indigo-300 transition-colors">+ Add</button>
+          </div>
+          <div id="np-rf-list" class="space-y-1.5"></div>
+        </div>
+      </div>
+
+      <!-- ── Step 2: Vital Signs ─────────────────────────────────────── -->
+      <div id="np-step-2" class="wizard-step hidden">
+        <p class="text-xs text-slate-500 mb-3">Enter 7 days of post-discharge sensor readings. Tab between cells. Dates auto-fill from discharge date.</p>
+        <div class="overflow-x-auto rounded-xl border border-white/6">
+          <table class="w-full" style="min-width:720px">
+            <thead>
+              <tr style="background:rgba(255,255,255,0.03)">
+                <th class="text-left text-xs font-semibold text-slate-500 px-3 py-2.5 w-14">Day</th>
+                <th class="text-xs font-semibold text-slate-500 px-2 py-2.5 w-24">Date</th>
+                <th class="text-xs font-semibold text-slate-400 px-2 py-2.5">HR</th>
+                <th class="text-xs font-semibold text-slate-400 px-2 py-2.5">SpO₂%</th>
+                <th class="text-xs font-semibold text-slate-400 px-2 py-2.5">RR</th>
+                <th class="text-xs font-semibold text-slate-400 px-2 py-2.5">Temp°C</th>
+                <th class="text-xs font-semibold text-slate-400 px-2 py-2.5">BP Sys</th>
+                <th class="text-xs font-semibold text-slate-400 px-2 py-2.5">BP Dia</th>
+                <th class="text-xs font-semibold text-slate-400 px-2 py-2.5">Wt lbs</th>
+                <th class="text-xs font-semibold text-slate-400 px-2 py-2.5">Steps</th>
+                <th class="text-xs font-semibold text-slate-400 px-2 py-2.5">Sleep h</th>
+                <th class="text-xs font-semibold text-slate-400 px-2 py-2.5">Wakes</th>
+              </tr>
+            </thead>
+            <tbody id="np-vitals-body" class="divide-y divide-white/4"></tbody>
+          </table>
+        </div>
+        <p class="text-xs text-slate-600 mt-2">HR = resting heart rate · RR = respiratory rate · Wakes = night-time sleep interruptions</p>
+      </div>
+
+      <!-- ── Step 3: Self-Reports ──────────────────────────────────────── -->
+      <div id="np-step-3" class="wizard-step hidden space-y-3">
+        <div class="flex items-center justify-between">
+          <p class="text-xs text-slate-500">Click <span class="text-indigo-400 font-medium">🎤 Record</span> to capture voice, or type the check-in directly.</p>
+          <span id="dg-status-note" class="text-xs text-slate-600"></span>
+        </div>
+        <div id="np-reports-list" class="space-y-3"></div>
+      </div>
+
+    </div><!-- /scrollable body -->
+
+    <!-- Modal footer -->
+    <div class="flex items-center justify-between p-4 border-t border-white/7 flex-shrink-0">
+      <button id="np-prev-btn" onclick="npPrev()"
+        class="px-4 py-2 rounded-xl text-sm font-medium text-slate-400 border border-white/10 hover:border-white/20 transition-all disabled:opacity-30">
+        ← Back
+      </button>
+      <div class="flex gap-2">
+        <button onclick="closeNewPatient()" class="px-4 py-2 rounded-xl text-sm text-slate-500 hover:text-slate-300 transition-colors">Cancel</button>
+        <button id="np-next-btn" onclick="npNext()"
+          class="px-5 py-2 rounded-xl text-sm font-semibold text-white transition-all"
+          style="background:linear-gradient(135deg,#3b82f6,#6366f1)">
+          Next →
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Logs modal ────────────────────────────────────────────────────────────── -->
+<div id="logs-modal" class="hidden fixed inset-0 modal-overlay z-50 flex items-center justify-center p-6">
+  <div class="modal-box rounded-2xl p-6 w-full max-w-2xl shadow-2xl max-h-[80vh] overflow-y-auto">
+    <div class="flex items-center justify-between mb-4">
+      <div>
+        <h2 class="font-semibold text-white">Reasoning Logs</h2>
+        <p class="text-xs text-slate-500 mt-0.5">Full agent reasoning is stored here — not shown in the UI</p>
+      </div>
+      <button onclick="closeLogsModal()" class="text-slate-500 hover:text-slate-300 text-2xl leading-none transition-colors">×</button>
+    </div>
+    <div id="logs-list" class="space-y-2"></div>
+  </div>
+</div>
+
+<!-- ── Log detail modal ───────────────────────────────────────────────────────── -->
+<div id="log-detail-modal" class="hidden fixed inset-0 modal-overlay z-50 flex items-center justify-center p-6">
+  <div class="modal-box rounded-2xl p-6 w-full max-w-4xl shadow-2xl">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="font-semibold text-white">Full Reasoning Log</h2>
+      <button onclick="closeLogDetail()" class="text-slate-500 hover:text-slate-300 text-2xl leading-none transition-colors">×</button>
+    </div>
+    <pre id="log-detail-content" class="mono text-xs text-slate-300 overflow-auto max-h-[60vh] bg-black/30 rounded-xl p-4 whitespace-pre-wrap"></pre>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════════ -->
+<script>
+// ─── Constants ────────────────────────────────────────────────────────────────
+const AGENT_META = {
+  signal:      { icon:'⚡', label:'Signal',          desc:'Acute anomaly detection' },
+  trend:       { icon:'📈', label:'Trend',           desc:'Longitudinal drift analysis' },
+  self_report: { icon:'💬', label:'Self-Report NLP',  desc:'Patient language extraction' },
+  knowledge:   { icon:'📚', label:'Medical RAG',     desc:'Guideline retrieval' },
+  skeptic:     { icon:'⚔',  label:'Skeptic',         desc:'Adversarial challenge' },
+  reconciler:  { icon:'⚖',  label:'Judge',           desc:'Evidence reconciliation' },
+  brief:       { icon:'📋', label:'Clinical Brief',   desc:'SBAR handoff document' },
+};
+const SEV_COLORS = { low:'#22c55e', medium:'#f59e0b', high:'#f97316', critical:'#ef4444', unknown:'#6b7280' };
+const BUILT_IN = new Set(['PT-7421','PT-3892','PT-5163']);
+
+// ─── App state ────────────────────────────────────────────────────────────────
+let patients = [];
+let selectedPatient = null;
+let analysisRunning = false;
+let agentsDone = 0;
+let currentSbar = '';
+let deepgramEnabled = false;
+
+// ─── New-patient wizard state ─────────────────────────────────────────────────
+let npStep = 1;
+let npMeds = [''];
+let npRFs  = [''];
+const npVitals  = Array.from({length:7}, (_,i) => ({ day:i+1, date:'', hr:'', spo2:'', rr:'', temp:'', sbp:'', dbp:'', weight:'', steps:'', sleep_hours:'', sleep_interruptions:'' }));
+const npReports = Array(7).fill('');
+
+// ─── Recording state ──────────────────────────────────────────────────────────
+let activeRecording = null; // { dayIndex, mediaRecorder, chunks, stream }
+
+// ─── Boot ─────────────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', async () => {
+  const st = await fetch('/api/status').then(r=>r.json()).catch(()=>({}));
+  const dot = document.getElementById('status-dot');
+  const txt = document.getElementById('status-text');
+  if (st.api_key_set) {
+    dot.className = 'w-2 h-2 rounded-full bg-green-500';
+    txt.textContent = 'Ready'; txt.className = 'text-xs text-green-500';
+  } else {
+    dot.className = 'w-2 h-2 rounded-full bg-red-500';
+    txt.textContent = 'No API key'; txt.className = 'text-xs text-red-400';
+  }
+  deepgramEnabled = !!st.deepgram_key_set;
+  if (deepgramEnabled) document.getElementById('dg-badge').classList.remove('hidden');
+
+  document.getElementById('dg-status-note').textContent =
+    deepgramEnabled ? '🟢 Deepgram ready' : '⚠ No DEEPGRAM_API_KEY — typing only';
+
+  await loadPatients();
+  initAgentCards();
+
+  // Pre-fill today's discharge date in new-patient form
+  document.getElementById('np-dc-date').value = new Date().toISOString().slice(0,10);
+});
+
+// ─── Patients ─────────────────────────────────────────────────────────────────
+async function loadPatients() {
+  patients = await fetch('/api/patients').then(r=>r.json()).catch(()=>[]);
+  renderPatientList();
+}
+
+function renderPatientList() {
+  const list = document.getElementById('patient-list');
+  list.innerHTML = '';
+  if (!patients.length) {
+    list.innerHTML = '<p class="text-xs text-slate-600 text-center py-6">No patients loaded</p>';
+    return;
+  }
+  patients.forEach(p => {
+    const risk = p.last_risk;
+    const el = document.createElement('div');
+    el.className = 'patient-item rounded-xl p-3 border border-white/5';
+    el.id = `pt-item-${p.id}`;
+    el.onclick = () => selectPatient(p.id);
+    el.innerHTML = `
+      <div class="flex items-start justify-between gap-2">
+        <div class="min-w-0">
+          <div class="flex items-center gap-1.5">
+            <p class="font-medium text-sm text-slate-200 truncate">${esc(p.name)}</p>
+            ${p.is_custom ? '<span class="text-indigo-400 text-xs">✦</span>' : ''}
+          </div>
+          <p class="text-xs text-slate-500 mt-0.5">${p.age}yo · Day ${p.days_post_discharge}</p>
+          <p class="text-xs text-slate-600 mt-0.5 truncate" style="max-width:140px">${esc(p.diagnosis.split('(')[0].trim())}</p>
+        </div>
+        ${risk ? `<span class="text-xs font-bold px-2 py-0.5 rounded-full flex-shrink-0 mt-0.5 badge-${risk.risk_level}">${risk.risk_score}</span>` : ''}
+      </div>`;
+    list.appendChild(el);
+  });
+}
+
+async function selectPatient(pid) {
+  if (analysisRunning) return;
+  document.querySelectorAll('.patient-item').forEach(el => el.classList.remove('active'));
+  document.getElementById(`pt-item-${pid}`)?.classList.add('active');
+
+  selectedPatient = patients.find(p => p.id === pid);
+  if (!selectedPatient) return;
+
+  // Show view
+  document.getElementById('empty-state').classList.add('hidden');
+  document.getElementById('patient-view').classList.remove('hidden');
+  document.getElementById('pipeline-section').classList.add('hidden');
+  document.getElementById('risk-section').classList.add('hidden');
+  document.getElementById('sbar-section').classList.add('hidden');
+
+  // Fill header
+  document.getElementById('pt-name').textContent = selectedPatient.name;
+  document.getElementById('pt-dx').textContent = selectedPatient.diagnosis;
+  document.getElementById('pt-age').textContent = `${selectedPatient.age}yo ${selectedPatient.sex}`;
+  document.getElementById('pt-dc').textContent = `Discharged ${selectedPatient.discharge_date} · Day ${selectedPatient.days_post_discharge}`;
+  document.getElementById('pt-meds').textContent = 'Meds: ' + selectedPatient.medications.join(' · ');
+  document.getElementById('pt-report').textContent = `"${selectedPatient.latest_self_report}"`;
+
+  // Custom badge + delete button
+  const isCustom = selectedPatient.is_custom;
+  document.getElementById('pt-custom-badge').classList.toggle('hidden', !isCustom);
+  document.getElementById('delete-btn').classList.toggle('hidden', !isCustom);
+
+  // Risk badge
+  const badge = document.getElementById('pt-risk-badge');
+  const r = selectedPatient.last_risk;
+  if (r) {
+    badge.textContent = `${r.risk_level.toUpperCase()} — ${r.risk_score}/100`;
+    badge.className = `text-xs font-bold px-2.5 py-1 rounded-full badge-${r.risk_level}`;
+    badge.classList.remove('hidden');
+  } else { badge.classList.add('hidden'); }
+
+  renderSparklines(selectedPatient.sensor_history);
+  resetPipeline();
+}
+
+async function deleteCurrentPatient() {
+  if (!selectedPatient || !selectedPatient.is_custom) return;
+  if (!confirm(`Delete patient "${selectedPatient.name}"? This cannot be undone.`)) return;
+  await fetch(`/api/patients/${selectedPatient.id}`, {method:'DELETE'});
+  selectedPatient = null;
+  document.getElementById('patient-view').classList.add('hidden');
+  document.getElementById('empty-state').classList.remove('hidden');
+  await loadPatients();
+}
+
+// ─── Sparklines ───────────────────────────────────────────────────────────────
+function renderSparklines(history) {
+  const grid = document.getElementById('sparkline-grid');
+  grid.innerHTML = '';
+  const configs = [
+    { key:'hr_resting_bpm',    label:'Heart Rate',  unit:'bpm',  color:'#60a5fa', worsens:'up' },
+    { key:'spo2_pct',          label:'SpO₂',        unit:'%',    color:'#34d399', worsens:'down' },
+    { key:'temp_c',            label:'Temperature', unit:'°C',   color:'#f472b6', worsens:'up' },
+    { key:'steps',             label:'Daily Steps', unit:'steps',color:'#a78bfa', worsens:'down' },
+  ];
+  configs.forEach(cfg => {
+    const vals = history.map(d => d[cfg.key]);
+    const curr = vals.at(-1), first = vals[0];
+    const delta = curr - first;
+    const bad = cfg.worsens === 'up' ? delta > 0 : delta < 0;
+    const color = bad ? '#fb923c' : cfg.color;
+    const arrow = delta > 0 ? '↑' : delta < 0 ? '↓' : '→';
+    const svg = buildSparkline(vals, 110, 32, color);
+    const card = document.createElement('div');
+    card.className = 'sparkline-card';
+    card.innerHTML = `
+      <div class="flex items-center justify-between mb-1.5">
+        <span class="text-xs font-medium text-slate-400">${cfg.label}</span>
+        <span class="text-xs" style="color:${bad?'#fb923c':'#4ade80'}">${arrow} ${delta>=0?'+':''}${typeof delta==='number'?delta.toFixed(1):delta}</span>
+      </div>
+      <div class="flex items-end gap-3">
+        <span class="text-lg font-bold" style="color:${bad?'#fb923c':'#e2e8f0'}">${curr}</span>
+        <span class="text-xs text-slate-600 pb-0.5">${cfg.unit}</span>
+        <div class="flex-1 flex justify-end">${svg}</div>
+      </div>`;
+    grid.appendChild(card);
+  });
+}
+
+function buildSparkline(data, w, h, color) {
+  if (data.length < 2) return '';
+  const mn = Math.min(...data), mx = Math.max(...data), rng = mx-mn||1;
+  const pts = data.map((v,i) => {
+    const x = (i/(data.length-1))*(w-4)+2;
+    const y = h-2-((v-mn)/rng)*(h-6);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+  const last = pts.split(' ').at(-1).split(',');
+  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
+    <polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.7"/>
+    <circle cx="${parseFloat(last[0]).toFixed(1)}" cy="${parseFloat(last[1]).toFixed(1)}" r="3" fill="${color}"/>
+  </svg>`;
+}
+
+// ─── TTS ──────────────────────────────────────────────────────────────────────
+async function playText(text, btnEl) {
+  if (!text) return;
+  if (!deepgramEnabled) { alert('DEEPGRAM_API_KEY not set — add it to your .env file'); return; }
+  if (btnEl) { btnEl.disabled = true; btnEl.textContent = '⏳ Loading…'; }
+  try {
+    const resp = await fetch('/api/tts', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({text}),
+    });
+    if (!resp.ok) { const e = await resp.json().catch(()=>({message:'TTS error'})); throw new Error(e.detail || e.message); }
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+    audio.onended = () => URL.revokeObjectURL(url);
+    audio.play();
+  } catch(e) { alert(`TTS error: ${e.message}`); }
+  finally { if (btnEl) { btnEl.disabled = false; btnEl.textContent = '🔊 Play'; } }
+}
+
+function playCurrentReport() {
+  const text = document.getElementById('pt-report').textContent.replace(/^"|"$/g,'');
+  playText(text, document.getElementById('tts-report-btn'));
+}
+
+function playSbar() {
+  playText(currentSbar, null);
+}
+
+// ─── Agent cards ──────────────────────────────────────────────────────────────
+function initAgentCards() {
+  Object.entries(AGENT_META).forEach(([id, meta]) => {
+    const card = document.getElementById(`card-${id}`);
+    if (!card) return;
+    card.innerHTML = `
+      <div class="flex items-center gap-2 mb-1.5">
+        <span class="text-base">${meta.icon}</span>
+        <span class="text-xs font-semibold text-slate-300">${meta.label}</span>
+      </div>
+      <p class="text-xs text-slate-600">${meta.desc}</p>
+      <div class="agent-status mt-2 text-xs text-slate-600"></div>`;
+  });
+}
+
+function resetPipeline() {
+  agentsDone = 0; updateProgress(0);
+  Object.entries(AGENT_META).forEach(([id, meta]) => {
+    const card = document.getElementById(`card-${id}`);
+    if (!card) return;
+    card.className = 'agent-card glass rounded-xl p-3 flex-1 state-idle';
+    card.innerHTML = `
+      <div class="flex items-center gap-2 mb-1.5">
+        <span class="text-base">${meta.icon}</span>
+        <span class="text-xs font-semibold text-slate-300">${meta.label}</span>
+      </div>
+      <p class="text-xs text-slate-600">${meta.desc}</p>
+      <div class="agent-status mt-2 text-xs text-slate-600">Waiting…</div>`;
+  });
+}
+
+function setAgentRunning(id) {
+  const card = document.getElementById(`card-${id}`);
+  if (!card) return;
+  card.className = 'agent-card glass rounded-xl p-3 flex-1 state-running';
+  card.querySelector('.agent-status').innerHTML = '<span class="text-blue-400 animate-pulse">● Analyzing…</span>';
+}
+
+function setAgentComplete(id, brief, elapsed) {
+  const card = document.getElementById(`card-${id}`);
+  if (!card) return;
+  const meta = AGENT_META[id];
+  const sev = brief.severity || brief.risk_level || 'unknown';
+  card.className = `agent-card glass rounded-xl p-3 flex-1 state-done-${sev}`;
+  const color = SEV_COLORS[sev] || '#6b7280';
+  let content = '';
+
+  if (id === 'signal') {
+    const alerts = (brief.alerts||[]).slice(0,2);
+    content = `<span style="color:${color}" class="font-bold text-sm">NEWS2: ${brief.news2_score??'?'}/15</span>
+      <span class="text-slate-500 ml-1 text-xs">${brief.news2_risk??''}</span>
+      ${alerts.map(a=>`<p class="text-xs truncate mt-0.5" style="color:#fb923c">⚠ ${esc(a)}</p>`).join('')}`;
+  } else if (id === 'trend') {
+    content = (brief.concerning_trends||[]).slice(0,2).map(t=>
+      `<p class="text-xs truncate mb-0.5" style="color:#fb923c">📈 ${esc(t)}</p>`).join('');
+  } else if (id === 'self_report') {
+    const traj = (brief.trajectory||'').replace('_',' ').toUpperCase();
+    const flag = (brief.red_flags||[])[0]||'';
+    content = `<span class="text-xs font-medium" style="color:${color}">${traj}</span>
+      ${flag?`<p class="text-xs italic text-slate-400 mt-1 truncate">"${esc(flag)}"</p>`:''}`;
+  } else if (id === 'knowledge') {
+    content = (brief.triggered||[]).slice(0,2).map(t=>
+      `<p class="text-xs truncate mb-0.5" style="color:#f87171">✓ ${esc(t)}</p>`).join('');
+  } else if (id === 'skeptic') {
+    const bc = brief.strongest_case||'';
+    content = `<p class="text-xs text-slate-400 italic truncate">"${esc(bc.substring(0,80))}…"</p>
+      <p class="text-xs mt-1 text-yellow-500/70">Fails: ${esc((brief.where_fails||'').substring(0,60))}…</p>`;
+  } else if (id === 'reconciler') {
+    const sc = brief.risk_score??0;
+    content = `<p class="font-bold" style="color:${color};font-size:1.4rem;line-height:1.1">${sc}<span class="text-xs font-normal text-slate-500">/100</span></p>
+      ${(brief.primary_drivers||[]).slice(0,1).map(d=>`<p class="text-xs truncate mt-0.5 text-slate-400">${esc(d)}</p>`).join('')}`;
+  } else if (id === 'brief') {
+    content = `<p class="text-xs text-slate-400">SBAR ready ↓</p>`;
+  }
+
+  card.innerHTML = `
+    <div class="flex items-center justify-between mb-1.5">
+      <div class="flex items-center gap-1.5">
+        <span class="text-base">${meta.icon}</span>
+        <span class="text-xs font-semibold text-slate-200">${meta.label}</span>
+      </div>
+      <span class="text-xs px-1.5 py-0.5 rounded-full font-semibold badge-${sev}">${sev}</span>
+    </div>
+    <div class="agent-status">${content}</div>
+    <div class="mt-1.5 text-xs text-slate-600">${elapsed}s</div>`;
+
+  agentsDone++;
+  updateProgress(agentsDone);
+}
+
+function updateProgress(done) {
+  document.getElementById('pipeline-progress-bar').style.width = `${Math.round(done/7*100)}%`;
+  document.getElementById('pipeline-progress-text').textContent = `${done} / 7 agents`;
+}
+
+// ─── Run analysis ─────────────────────────────────────────────────────────────
+function runAnalysis() {
+  if (!selectedPatient || analysisRunning) return;
+  analysisRunning = true; currentSbar = '';
+  const btn = document.getElementById('run-btn');
+  btn.disabled = true; btn.textContent = '⏳ Analyzing…';
+  btn.style.background = '#1e2538'; btn.style.boxShadow = 'none';
+
+  document.getElementById('pipeline-section').classList.remove('hidden');
+  document.getElementById('risk-section').classList.add('hidden');
+  document.getElementById('sbar-section').classList.add('hidden');
+  resetPipeline();
+
+  const es = new EventSource(`/api/analyze/${selectedPatient.id}`);
+  es.onmessage = (e) => {
+    let d; try { d = JSON.parse(e.data); } catch { return; }
+    if (d.type === 'agent_start') setAgentRunning(d.agent_id);
+    else if (d.type === 'agent_complete') setAgentComplete(d.agent_id, d.brief, d.elapsed);
+    else if (d.type === 'pipeline_complete') {
+      renderRisk(d); renderSbar(d.sbar);
+      es.close(); finishRun(d);
+    } else if (d.type === 'error') {
+      showError(d.message); es.close(); finishRun(null);
+    }
+  };
+  es.onerror = () => { showError('Connection lost.'); es.close(); finishRun(null); };
+}
+
+function finishRun(data) {
+  analysisRunning = false;
+  const btn = document.getElementById('run-btn');
+  btn.disabled = false; btn.textContent = '▶  Re-Run Analysis';
+  btn.style.background = 'linear-gradient(135deg,#3b82f6,#6366f1)';
+  btn.style.boxShadow = '0 4px 20px rgba(99,102,241,0.35)';
+  loadPatients().then(() => {
+    if (selectedPatient) document.getElementById(`pt-item-${selectedPatient.id}`)?.classList.add('active');
+  });
+}
+
+function showError(msg) {
+  const el = document.createElement('div');
+  el.className = 'mt-3 p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-sm';
+  el.textContent = `Error: ${msg}`;
+  document.getElementById('pipeline-section').appendChild(el);
+}
+
+// ─── Risk + SBAR display ──────────────────────────────────────────────────────
+function renderRisk(d) {
+  const score = d.risk_score ?? 0;
+  const level = d.risk_level ?? 'unknown';
+  const color = SEV_COLORS[level] || '#6b7280';
+  const rs = document.getElementById('risk-section');
+  rs.classList.remove('hidden');
+  rs.className = `glass rounded-2xl p-6 fade-in border risk-${level}`;
+  document.getElementById('gauge-container').innerHTML = buildGauge(score, level);
+  document.getElementById('risk-level-label').textContent = `${level.toUpperCase()} RISK`;
+  document.getElementById('risk-level-label').style.color = color;
+  if (d.recommended_action) {
+    document.getElementById('risk-action-box').classList.remove('hidden');
+    document.getElementById('risk-action-box').className = `rounded-xl p-3 border text-sm risk-${level}`;
+    document.getElementById('risk-action-text').textContent = d.recommended_action;
+    document.getElementById('risk-action-text').style.color = color;
+    document.getElementById('risk-timing-text').textContent =
+      'Time sensitivity: ' + (d.time_sensitivity||'').replace(/_/g,' ').toUpperCase();
+  }
+}
+
+function buildGauge(score, level) {
+  const color = SEV_COLORS[level]||'#6b7280';
+  const cx=80, cy=86, r=60, circ=2*Math.PI*r;
+  const trackLen=circ*0.75, scoreLen=(score/100)*trackLen;
+  return `<svg width="160" height="130" viewBox="0 0 160 130">
+    <defs><filter id="glow"><feGaussianBlur stdDeviation="3" result="cb"/>
+    <feMerge><feMergeNode in="cb"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>
+    <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#1e2538" stroke-width="10"
+      stroke-dasharray="${trackLen.toFixed(2)} ${circ.toFixed(2)}" stroke-linecap="round" transform="rotate(225 ${cx} ${cy})"/>
+    <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${color}" stroke-width="10"
+      stroke-dasharray="${scoreLen.toFixed(2)} ${circ.toFixed(2)}" stroke-linecap="round"
+      filter="url(#glow)" transform="rotate(225 ${cx} ${cy})"/>
+    <text x="${cx}" y="${cy-4}" text-anchor="middle" fill="${color}" font-size="28" font-weight="800"
+      font-family="Inter,system-ui,sans-serif">${score}</text>
+    <text x="${cx}" y="${cy+14}" text-anchor="middle" fill="#4b5563" font-size="11"
+      font-family="Inter,system-ui,sans-serif">/100</text>
+  </svg>`;
+}
+
+function renderSbar(text) {
+  if (!text) return;
+  currentSbar = text;
+  document.getElementById('sbar-section').classList.remove('hidden');
+  document.getElementById('sbar-content').innerHTML = formatSbar(text);
+}
+
+function formatSbar(text) {
+  return text
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/^---$/gm, '<hr>')
+    .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+    .replace(/\n\n+/g, '</p><p>')
+    .replace(/\n/g, '<br>');
+}
+
+function copySbar() {
+  navigator.clipboard.writeText(currentSbar).then(() => {
+    const btn = document.querySelector('#sbar-section button:last-child');
+    if (btn) { btn.textContent='Copied!'; btn.style.color='#4ade80'; setTimeout(()=>{btn.textContent='Copy';btn.style.color='';},2000); }
+  });
+}
+
+// ─── NEW PATIENT WIZARD ───────────────────────────────────────────────────────
+
+function openNewPatient() {
+  npStep = 1;
+  npMeds.length = 0; npMeds.push('');
+  npRFs.length  = 0; npRFs.push('');
+  for (let i=0;i<7;i++) Object.assign(npVitals[i], {day:i+1,date:'',hr:'',spo2:'',rr:'',temp:'',sbp:'',dbp:'',weight:'',steps:'',sleep_hours:'',sleep_interruptions:''});
+  npReports.fill('');
+
+  // Clear form inputs
+  ['np-name','np-age','np-diagnosis','np-base-hr','np-base-spo2','np-base-weight','np-risk'].forEach(id=>{
+    const el = document.getElementById(id); if(el) el.value = '';
+  });
+  document.getElementById('np-sex').value = 'Male';
+  document.getElementById('np-condition').value = 'chf';
+  document.getElementById('np-dc-date').value = new Date().toISOString().slice(0,10);
+
+  renderMedsList(); renderRFsList();
+  buildVitalsTable(); buildReportsList();
+  updateVitalsDates();
+  gotoStep(1, false);
+  document.getElementById('np-modal').classList.remove('hidden');
+}
+
+function closeNewPatient() {
+  document.getElementById('np-modal').classList.add('hidden');
+  stopRecordingIfActive();
+}
+
+function gotoStep(n, validate=true) {
+  if (validate && n > npStep && !validateCurrentStep()) return;
+  npStep = n;
+
+  [1,2,3].forEach(i => {
+    document.getElementById(`np-step-${i}`).classList.toggle('hidden', i !== n);
+    const dot = document.getElementById(`sdot-${i}`);
+    const lbl = document.getElementById(`slabel-${i}`);
+    dot.className = `step-dot w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white ${i<n?'done':i===n?'active':'pending'}`;
+    lbl.className = `text-xs font-semibold ${i===n?'text-blue-400':'text-slate-500'}`;
+  });
+
+  document.getElementById('np-prev-btn').disabled = (n===1);
+  const nextBtn = document.getElementById('np-next-btn');
+  if (n === 3) { nextBtn.textContent = '💾 Save Patient'; nextBtn.onclick = saveNewPatient; }
+  else { nextBtn.textContent = 'Next →'; nextBtn.onclick = npNext; }
+}
+
+function npNext() { gotoStep(npStep + 1); }
+function npPrev() { gotoStep(npStep - 1, false); }
+
+function validateCurrentStep() {
+  if (npStep === 1) {
+    const name = document.getElementById('np-name').value.trim();
+    const diagnosis = document.getElementById('np-diagnosis').value.trim();
+    const dcDate = document.getElementById('np-dc-date').value;
+    if (!name || !diagnosis || !dcDate) {
+      alert('Please fill in Name, Diagnosis, and Discharge Date before continuing.');
+      return false;
+    }
+  }
+  return true;
+}
+
+// Medications list
+function addMed() { npMeds.push(''); renderMedsList(); }
+function removeMed(i) { npMeds.splice(i,1); if(!npMeds.length) npMeds.push(''); renderMedsList(); }
+function renderMedsList() {
+  document.getElementById('np-meds-list').innerHTML = npMeds.map((m,i)=>`
+    <div class="flex gap-2">
+      <input class="np-input flex-1" type="text" value="${esc(m)}"
+        oninput="npMeds[${i}]=this.value" placeholder="e.g. Furosemide 40mg QD">
+      <button onclick="removeMed(${i})" class="text-slate-600 hover:text-red-400 px-2 transition-colors text-lg leading-none">×</button>
+    </div>`).join('');
+}
+
+// Risk factors list
+function addRF() { npRFs.push(''); renderRFsList(); }
+function removeRF(i) { npRFs.splice(i,1); if(!npRFs.length) npRFs.push(''); renderRFsList(); }
+function renderRFsList() {
+  document.getElementById('np-rf-list').innerHTML = npRFs.map((r,i)=>`
+    <div class="flex gap-2">
+      <input class="np-input flex-1" type="text" value="${esc(r)}"
+        oninput="npRFs[${i}]=this.value" placeholder="e.g. Hypertension">
+      <button onclick="removeRF(${i})" class="text-slate-600 hover:text-red-400 px-2 transition-colors text-lg leading-none">×</button>
+    </div>`).join('');
+}
+
+// Vitals table
+function buildVitalsTable() {
+  const tbody = document.getElementById('np-vitals-body');
+  tbody.innerHTML = Array.from({length:7},(_,i)=>{
+    const v = npVitals[i];
+    return `<tr id="vrow-${i}" class="${i%2===0?'':''}">
+      <td class="px-3 py-1.5 text-xs font-semibold text-slate-500">D${i+1}</td>
+      <td class="np-cell px-1"><input id="vdate-${i}" class="np-input" type="date" style="padding:4px 6px;font-size:0.73rem" oninput="npVitals[${i}].date=this.value"></td>
+      ${['hr','spo2','rr','temp','sbp','dbp','weight','steps','sleep_hours','sleep_interruptions'].map(k=>`
+        <td class="np-cell px-1"><input type="number" step="any" placeholder="-"
+          oninput="npVitals[${i}]['${k}']=this.value"
+          style="width:60px;background:#0a0d14;border:1px solid rgba(255,255,255,0.07);border-radius:6px;color:#e2e8f0;font-size:0.78rem;text-align:center;padding:4px 3px">
+        </td>`).join('')}
+    </tr>`;
+  }).join('');
+}
+
+function updateVitalsDates() {
+  const dc = document.getElementById('np-dc-date').value;
+  if (!dc) return;
+  const base = new Date(dc + 'T00:00:00');
+  for (let i=0;i<7;i++) {
+    const d = new Date(base); d.setDate(base.getDate()+i+1);
+    const dateStr = d.toISOString().slice(0,10);
+    npVitals[i].date = dateStr;
+    const el = document.getElementById(`vdate-${i}`);
+    if (el) el.value = dateStr;
+  }
+}
+
+// Reports list with voice recording
+function buildReportsList() {
+  document.getElementById('np-reports-list').innerHTML = Array.from({length:7},(_,i)=>`
+    <div class="glass rounded-xl p-4">
+      <div class="flex items-center justify-between mb-2">
+        <label class="text-xs font-semibold text-slate-400">Day ${i+1} <span id="rdate-${i}" class="text-slate-600 font-normal ml-1"></span></label>
+        <div class="flex items-center gap-2">
+          <span id="rec-status-${i}" class="text-xs text-slate-600"></span>
+          <button id="rec-btn-${i}" onclick="toggleRecording(${i})"
+            class="rec-btn idle flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium"
+            ${deepgramEnabled?'':'title="No DEEPGRAM_API_KEY" style="opacity:0.4;cursor:not-allowed" disabled'}>
+            🎤 Record
+          </button>
+          <button onclick="playReport(${i})"
+            class="tts-btn flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium"
+            ${deepgramEnabled?'':'disabled style="opacity:0.4"'}
+            title="Play back with Deepgram TTS">
+            🔊
+          </button>
+        </div>
+      </div>
+      <textarea id="report-ta-${i}" rows="2" class="np-input w-full resize-none"
+        placeholder="Type or record patient check-in for Day ${i+1}…"
+        oninput="npReports[${i}]=this.value"
+        style="padding:8px 11px;line-height:1.5"></textarea>
+    </div>`).join('');
+  // Update date labels from vitals
+  for (let i=0;i<7;i++) {
+    const lbl = document.getElementById(`rdate-${i}`);
+    if (lbl && npVitals[i].date) lbl.textContent = `— ${npVitals[i].date}`;
+  }
+}
+
+// Update report date labels when dates change (called after step 2 → 3)
+function syncReportDates() {
+  for (let i=0;i<7;i++) {
+    const lbl = document.getElementById(`rdate-${i}`);
+    if (lbl) lbl.textContent = npVitals[i].date ? `— ${npVitals[i].date}` : '';
+  }
+}
+
+// Override gotoStep to sync dates when entering step 3
+const _origGotoStep = gotoStep;
+
+function gotoStep(n, validate=true) {
+  if (validate && n > npStep && !validateCurrentStep()) return;
+
+  // Sync vitals data from DOM before leaving step 2
+  if (npStep === 2 && n !== 2) syncVitalsFromDOM();
+
+  npStep = n;
+  [1,2,3].forEach(i => {
+    document.getElementById(`np-step-${i}`).classList.toggle('hidden', i !== n);
+    const dot = document.getElementById(`sdot-${i}`);
+    const lbl = document.getElementById(`slabel-${i}`);
+    dot.className = `step-dot w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white ${i<n?'done':i===n?'active':'pending'}`;
+    lbl.className = `text-xs font-semibold ${i===n?'text-blue-400':'text-slate-500'}`;
+  });
+  document.getElementById('np-prev-btn').disabled = (n===1);
+  const nextBtn = document.getElementById('np-next-btn');
+  if (n===3) { nextBtn.textContent='💾 Save Patient'; nextBtn.onclick=saveNewPatient; syncReportDates(); }
+  else { nextBtn.textContent='Next →'; nextBtn.onclick=npNext; }
+}
+
+function syncVitalsFromDOM() {
+  const rows = document.querySelectorAll('[id^="vrow-"]');
+  rows.forEach((row, i) => {
+    const inputs = row.querySelectorAll('input[type="number"]');
+    const keys = ['hr','spo2','rr','temp','sbp','dbp','weight','steps','sleep_hours','sleep_interruptions'];
+    inputs.forEach((inp, j) => { if (keys[j]) npVitals[i][keys[j]] = inp.value; });
+  });
+}
+
+// Voice recording
+function toggleRecording(dayIndex) {
+  if (activeRecording) {
+    if (activeRecording.dayIndex === dayIndex) { stopRecording(); return; }
+    stopRecording();
+  }
+  startRecording(dayIndex);
+}
+
+function getSupportedMimeType() {
+  const types = ['audio/webm;codecs=opus','audio/webm','audio/ogg;codecs=opus','audio/ogg','audio/mp4'];
+  return types.find(t => MediaRecorder.isTypeSupported(t)) || '';
+}
+
+async function startRecording(dayIndex) {
+  if (!deepgramEnabled) return;
+  let stream;
+  try { stream = await navigator.mediaDevices.getUserMedia({audio:true, video:false}); }
+  catch(e) { alert(`Microphone access denied: ${e.message}`); return; }
+
+  const mimeType = getSupportedMimeType();
+  const opts = mimeType ? {mimeType} : {};
+  const mr = new MediaRecorder(stream, opts);
+  const chunks = [];
+
+  mr.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
+  mr.onstop = async () => {
+    stream.getTracks().forEach(t=>t.stop());
+    activeRecording = null;
+    setRecordBtn(dayIndex, 'transcribing');
+    try {
+      const blob = new Blob(chunks, {type: mimeType||'audio/webm'});
+      const resp = await fetch('/api/transcribe', {
+        method:'POST',
+        headers:{'Content-Type': mimeType||'audio/webm'},
+        body: blob,
+      });
+      if (!resp.ok) { const e=await resp.json().catch(()=>({detail:'error'})); throw new Error(e.detail); }
+      const {transcript} = await resp.json();
+      const ta = document.getElementById(`report-ta-${dayIndex}`);
+      ta.value = transcript;
+      npReports[dayIndex] = transcript;
+    } catch(e) { alert(`Transcription failed: ${e.message}`); }
+    setRecordBtn(dayIndex, 'idle');
+  };
+
+  mr.start(200);
+  activeRecording = {dayIndex, mediaRecorder:mr, chunks, stream};
+  setRecordBtn(dayIndex, 'recording');
+}
+
+function stopRecording() {
+  if (activeRecording) {
+    activeRecording.mediaRecorder.stop();
+  }
+}
+
+function stopRecordingIfActive() {
+  if (activeRecording) { activeRecording.stream.getTracks().forEach(t=>t.stop()); activeRecording=null; }
+}
+
+function setRecordBtn(dayIndex, state) {
+  const btn = document.getElementById(`rec-btn-${dayIndex}`);
+  const status = document.getElementById(`rec-status-${dayIndex}`);
+  if (!btn) return;
+  btn.className = `rec-btn ${state} flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium`;
+  if (state === 'idle') { btn.textContent='🎤 Record'; if(status) status.textContent=''; }
+  else if (state === 'recording') { btn.textContent='⏹ Stop'; if(status) status.innerHTML='<span class="text-red-400 animate-pulse">● Recording</span>'; }
+  else if (state === 'transcribing') { btn.textContent='…'; btn.disabled=true; if(status) status.textContent='Transcribing…'; }
+}
+
+async function playReport(dayIndex) {
+  const text = document.getElementById(`report-ta-${dayIndex}`)?.value?.trim();
+  if (!text) { alert('No text to play — type or record first.'); return; }
+  await playText(text, null);
+}
+
+// Save new patient
+async function saveNewPatient() {
+  syncVitalsFromDOM();
+
+  // Sync report textareas
+  for (let i=0;i<7;i++) {
+    const ta = document.getElementById(`report-ta-${i}`);
+    if (ta) npReports[i] = ta.value.trim();
+  }
+
+  const name = document.getElementById('np-name').value.trim();
+  const diagnosis = document.getElementById('np-diagnosis').value.trim();
+  if (!name || !diagnosis) { alert('Name and diagnosis are required.'); gotoStep(1,false); return; }
+
+  // Check vitals - at least day 1 must have HR
+  if (!npVitals[0].hr) { alert('Please enter at least Day 1 vital signs.'); gotoStep(2,false); return; }
+
+  // Build profile
+  const profile = {
+    name,
+    age: parseInt(document.getElementById('np-age').value)||0,
+    sex: document.getElementById('np-sex').value,
+    diagnosis,
+    primary_condition: document.getElementById('np-condition').value,
+    discharge_date: document.getElementById('np-dc-date').value,
+    medications: npMeds.filter(m=>m.trim()),
+    risk_factors: npRFs.filter(r=>r.trim()),
+    baseline_hr_bpm: parseFloat(document.getElementById('np-base-hr').value)||72,
+    baseline_spo2_pct: parseFloat(document.getElementById('np-base-spo2').value)||97,
+    baseline_weight_lbs: parseFloat(document.getElementById('np-base-weight').value)||165.0,
+    "30day_readmission_risk": document.getElementById('np-risk').value.trim()||'Unknown',
+  };
+
+  // Build sensor history (only days with at least HR filled in)
+  const sensor_history = npVitals
+    .filter(v => v.hr)
+    .map(v => ({
+      day: v.day,
+      date: v.date || '',
+      hr_resting_bpm: parseFloat(v.hr)||profile.baseline_hr_bpm,
+      hr_avg_bpm: Math.round((parseFloat(v.hr)||profile.baseline_hr_bpm) * 1.08),
+      spo2_pct: parseFloat(v.spo2)||profile.baseline_spo2_pct,
+      rr_breaths_per_min: parseFloat(v.rr)||16,
+      temp_c: parseFloat(v.temp)||36.8,
+      systolic_bp: parseFloat(v.sbp)||128,
+      diastolic_bp: parseFloat(v.dbp)||80,
+      weight_lbs: parseFloat(v.weight)||profile.baseline_weight_lbs,
+      steps: parseInt(v.steps)||1000,
+      sleep_hours: parseFloat(v.sleep_hours)||7.0,
+      sleep_interruptions: parseInt(v.sleep_interruptions)||1,
+    }));
+
+  // Build self reports
+  const self_reports = sensor_history.map((s, i) => ({
+    day: s.day,
+    text: npReports[i]?.trim() || `Day ${s.day} check-in not recorded.`,
+  }));
+
+  const saveBtn = document.getElementById('np-next-btn');
+  saveBtn.disabled = true; saveBtn.textContent = '💾 Saving…';
+
+  try {
+    const resp = await fetch('/api/patients', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({profile, sensor_history, self_reports}),
+    });
+    if (!resp.ok) { const e=await resp.json().catch(()=>({detail:'error'})); throw new Error(e.detail); }
+    const {id} = await resp.json();
+    closeNewPatient();
+    await loadPatients();
+    await selectPatient(id);
+  } catch(e) {
+    alert(`Failed to save patient: ${e.message}`);
+  } finally {
+    saveBtn.disabled=false; saveBtn.textContent='💾 Save Patient';
+  }
+}
+
+// ─── Logs modals ──────────────────────────────────────────────────────────────
+async function openLogsModal() {
+  document.getElementById('logs-modal').classList.remove('hidden');
+  const list = document.getElementById('logs-list');
+  list.innerHTML = '<p class="text-xs text-slate-500 text-center py-6">Loading…</p>';
+  const logs = await fetch('/api/logs').then(r=>r.json()).catch(()=>[]);
+  if (!logs.length) {
+    list.innerHTML = '<p class="text-xs text-slate-500 text-center py-6">No logs yet — run an analysis to generate full reasoning logs.</p>';
+    return;
+  }
+  list.innerHTML = logs.map(log=>`
+    <div class="flex items-center justify-between p-3 rounded-xl bg-white/3 hover:bg-white/5 transition-colors cursor-pointer border border-white/5"
+         onclick="openLogDetail('${log.filename}')">
+      <div>
+        <p class="text-sm font-medium text-slate-200">${esc(log.patient_name??log.patient_id??'')}</p>
+        <p class="text-xs text-slate-500 mt-0.5">${(log.timestamp||'').replace('T',' ').slice(0,19)}</p>
+      </div>
+      <div class="text-right">
+        <span class="badge-${log.risk_level} text-xs px-2 py-0.5 rounded-full font-bold">${log.risk_score??'?'}/100</span>
+        <p class="text-xs text-slate-700 mt-1 mono">${log.filename}</p>
+      </div>
+    </div>`).join('');
+}
+function closeLogsModal() { document.getElementById('logs-modal').classList.add('hidden'); }
+
+async function openLogDetail(filename) {
+  document.getElementById('log-detail-modal').classList.remove('hidden');
+  document.getElementById('log-detail-content').textContent = 'Loading…';
+  const data = await fetch(`/api/logs/${filename}`).then(r=>r.json()).catch(()=>null);
+  document.getElementById('log-detail-content').textContent = data ? JSON.stringify(data,null,2) : 'Failed to load.';
+}
+function closeLogDetail() { document.getElementById('log-detail-modal').classList.add('hidden'); }
+
+// Close modals on overlay click
+['logs-modal','log-detail-modal','np-modal'].forEach(id => {
+  document.getElementById(id).addEventListener('click', e => { if(e.target===e.currentTarget) { if(id==='np-modal') closeNewPatient(); else document.getElementById(id).classList.add('hidden'); } });
+});
+
+// ─── Utility ──────────────────────────────────────────────────────────────────
+function esc(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+</script>
+</body>
+</html>

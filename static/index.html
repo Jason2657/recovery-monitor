@@ -434,11 +434,14 @@
               <div id="res-complications" class="space-y-1.5 mt-2"></div>
             </details>
 
-            <!-- Red flags (always visible — actionable) -->
-            <div class="rounded-lg p-3 border border-red-500/20" style="background:rgba(239,68,68,0.05)">
-              <p class="text-xs font-semibold text-red-400 uppercase tracking-widest mb-1.5">🚨 Red Flags</p>
-              <ul id="res-redflags" class="space-y-1"></ul>
-            </div>
+            <!-- Red flags (collapsible) -->
+            <details class="res-section">
+              <summary class="rounded-lg px-3 py-2 border border-red-500/20" style="background:rgba(239,68,68,0.05)">
+                <span class="text-xs font-semibold text-red-400 uppercase tracking-widest">🚨 Potential Red Flags</span>
+                <span class="chev text-red-700">▶</span>
+              </summary>
+              <ul id="res-redflags" class="space-y-1 mt-1.5 pl-1"></ul>
+            </details>
 
             <!-- Evidence highlights (collapsible) -->
             <details class="res-section">
@@ -990,10 +993,44 @@ function buildSparkline(data, w, h, color) {
 }
 
 // ─── TTS ──────────────────────────────────────────────────────────────────────
+let _ttsAudio = null;      // currently playing Audio object
+let _ttsBtn   = null;      // button that triggered current playback
+let _ttsBlobUrl = null;
+
+function _ttsStop() {
+  if (_ttsAudio) {
+    _ttsAudio.pause();
+    _ttsAudio.currentTime = 0;
+    _ttsAudio = null;
+  }
+  if (_ttsBlobUrl) { URL.revokeObjectURL(_ttsBlobUrl); _ttsBlobUrl = null; }
+  if (_ttsBtn) {
+    _ttsBtn.textContent = '🔊 Play';
+    _ttsBtn.disabled = false;
+    _ttsBtn = null;
+  }
+  // Reset any tts-btn that's showing Stop
+  document.querySelectorAll('.tts-btn').forEach(b => {
+    if (b.textContent.includes('Stop') || b.textContent.includes('Loading')) {
+      b.textContent = '🔊 Play';
+      b.disabled = false;
+    }
+  });
+}
+
 async function playText(text, btnEl) {
   if (!text) return;
   if (!deepgramEnabled) { alert('DEEPGRAM_API_KEY not set — add it to your .env file'); return; }
-  if (btnEl) { btnEl.disabled = true; btnEl.textContent = '⏳ Loading…'; }
+
+  // If already playing: stop and return (toggle behaviour)
+  if (_ttsAudio && !_ttsAudio.paused) {
+    _ttsStop();
+    return;
+  }
+  // Stop any previous audio before starting new one
+  _ttsStop();
+
+  if (btnEl) { btnEl.disabled = true; btnEl.textContent = '⏳ Loading…'; _ttsBtn = btnEl; }
   try {
     const resp = await fetch('/api/tts', {
       method:'POST', headers:{'Content-Type':'application/json'},
@@ -1001,12 +1038,16 @@ async function playText(text, btnEl) {
     });
     if (!resp.ok) { const e = await resp.json().catch(()=>({message:'TTS error'})); throw new Error(e.detail || e.message); }
     const blob = await resp.blob();
-    const url = URL.createObjectURL(blob);
-    const audio = new Audio(url);
-    audio.onended = () => URL.revokeObjectURL(url);
-    audio.play();
-  } catch(e) { alert(`TTS error: ${e.message}`); }
-  finally { if (btnEl) { btnEl.disabled = false; btnEl.textContent = '🔊 Play'; } }
+    _ttsBlobUrl = URL.createObjectURL(blob);
+    _ttsAudio = new Audio(_ttsBlobUrl);
+    if (btnEl) { btnEl.disabled = false; btnEl.textContent = '⏹ Stop'; }
+    _ttsAudio.onended = () => _ttsStop();
+    _ttsAudio.onerror = () => _ttsStop();
+    _ttsAudio.play();
+  } catch(e) {
+    _ttsStop();
+    alert(`TTS error: ${e.message}`);
+  }
 }
 
 function playCurrentReport() {
@@ -1016,12 +1057,14 @@ function playCurrentReport() {
 
 function playSbar() {
   const active = sbarMode === 'simple' && currentSbarSimple ? currentSbarSimple : currentSbar;
-  playText(active, null);
+  const btn = document.querySelector('#sbar-section .tts-btn');
+  playText(active, btn || null);
 }
 
 function playResearchNarrative() {
   const narr = document.getElementById('res-narrative').innerText || '';
-  playText(narr, null);
+  const btn = document.querySelector('#res-narrative').closest('div')?.querySelector('.tts-btn');
+  playText(narr, btn || null);
 }
 
 // ─── Research mode (clinical ↔ patient-friendly) ──────────────────────────────
@@ -2329,10 +2372,11 @@ function renderResearch(data) {
       ${e.clinical_relevance ? `<p class="text-xs text-violet-400 italic">${esc(e.clinical_relevance)}</p>` : ''}
     </div>`).join('');
 
-  // Tailored narrative
+  // Tailored narrative — keep short (max 3 sentences)
   const narr = data.tailored_risk_narrative || '';
-  document.getElementById('res-narrative').innerHTML = narr.split('\n\n').filter(Boolean).map(p =>
-    `<p>${esc(p)}</p>`).join('');
+  const sentences = narr.replace(/\n+/g, ' ').match(/[^.!?]+[.!?]+/g) || [narr];
+  const short = sentences.slice(0, 3).join(' ').trim();
+  document.getElementById('res-narrative').innerHTML = short ? `<p>${esc(short)}</p>` : '';
 
   // Sources
   const sources = data.sources_fetched || [];

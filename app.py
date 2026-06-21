@@ -31,43 +31,52 @@ app = FastAPI(title="PostCare AI Monitor")
 _arduino_state: dict = {"tilt": 0, "light": 0, "connected": False}
 
 def _arduino_reader():
-    """Background thread: read tilt/light values from Arduino over serial."""
+    """Background thread: read tilt/light from Arduino. Auto-retries every 5s."""
     try:
         import serial
         import serial.tools.list_ports
+    except ImportError:
+        return  # pyserial not installed — silent no-op
 
-        SERIAL_PORT = "/dev/cu.usbmodem101"
-        BAUD_RATE   = 9600
+    BAUD_RATE = 9600
 
-        # Auto-detect if the hardcoded port isn't present
+    def _find_port():
+        preferred = "/dev/cu.usbmodem101"
         available = [p.device for p in serial.tools.list_ports.comports()]
-        if SERIAL_PORT not in available:
-            for p in available:
-                if "usbmodem" in p or "usbserial" in p or "ACM" in p:
-                    SERIAL_PORT = p
-                    break
-            else:
-                return  # no Arduino-like port found
+        if preferred in available:
+            return preferred
+        for p in available:
+            if any(k in p for k in ("usbmodem", "usbserial", "ACM", "Arduino")):
+                return p
+        return None
 
-        ser = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=1)
-        time.sleep(2)
-        ser.reset_input_buffer()
-        _arduino_state["connected"] = True
-
-        while True:
-            raw = ser.readline().decode("utf-8", errors="ignore").strip()
-            if not raw:
-                continue
-            parts = raw.split(",")
-            if len(parts) != 2:
-                continue
-            try:
-                _arduino_state["tilt"]  = int(parts[0])
-                _arduino_state["light"] = int(parts[1])
-            except ValueError:
-                pass
-    except Exception:
-        _arduino_state["connected"] = False
+    while True:
+        port = _find_port()
+        if not port:
+            _arduino_state["connected"] = False
+            time.sleep(5)
+            continue
+        try:
+            ser = serial.Serial(port, BAUD_RATE, timeout=1)
+            time.sleep(2)
+            ser.reset_input_buffer()
+            _arduino_state["connected"] = True
+            while True:
+                raw = ser.readline().decode("utf-8", errors="ignore").strip()
+                if not raw:
+                    continue
+                parts = raw.split(",")
+                if len(parts) != 2:
+                    continue
+                try:
+                    _arduino_state["tilt"]  = int(parts[0])
+                    _arduino_state["light"] = int(parts[1])
+                except ValueError:
+                    pass
+        except Exception:
+            _arduino_state["connected"] = False
+            _arduino_state["tilt"] = 0
+            time.sleep(5)  # wait before retrying
 
 threading.Thread(target=_arduino_reader, daemon=True).start()
 

@@ -570,7 +570,7 @@ Return ONLY this JSON structure. All fields must specifically mention {disease}:
       "clinical_relevance": "how this applies to {name}"
     }}
   ],
-  "tailored_risk_narrative": "2-3 paragraphs specifically about {name}, {age}yo {sex} with {diagnosis}: risk profile, what to watch for, why their demographics matter"
+  "tailored_risk_narrative": "2-3 sentences max — key risk factors specific to {name} ({age}yo {sex}) with {diagnosis}. What makes this patient's profile distinct."
 }}"""
 
     synthesis = {}

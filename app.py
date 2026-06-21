@@ -548,6 +548,28 @@ async def get_cached_research(patient_id: str):
     return JSONResponse(research_cache[patient_id])
 
 
+@app.get("/api/research/{patient_id}/debug")
+async def debug_research(patient_id: str):
+    """Debug endpoint: returns cached research + log tail for diagnosing blank sections."""
+    result: dict = {"patient_id": patient_id, "cached": bool(patient_id in research_cache)}
+    if patient_id in research_cache:
+        r = research_cache[patient_id]
+        result["keys_present"] = list(r.keys())
+        result["diagnosis_context_preview"] = str(r.get("diagnosis_context", "MISSING"))[:200]
+        result["red_flags_count"] = len(r.get("red_flags") or [])
+        result["complications_count"] = len(r.get("common_complications") or [])
+        result["sources_fetched"] = r.get("sources_fetched", [])
+        result["raw_response_length"] = r.get("_raw_response_length", "not recorded")
+        result["has_error"] = bool(r.get("error"))
+    try:
+        with open("/tmp/postcareai_research.log") as f:
+            lines = f.readlines()
+        result["log_tail"] = "".join(lines[-30:])
+    except Exception:
+        result["log_tail"] = "log file not found"
+    return JSONResponse(result)
+
+
 # ─── Routes: logs ─────────────────────────────────────────────────────────────
 
 @app.get("/api/logs")

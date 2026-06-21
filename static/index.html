@@ -1799,7 +1799,7 @@ function upsertProgressRow(source, status, done) {
   } else {
     const row = document.createElement('div');
     row.className = `research-progress-row${done ? ' done' : ''}`;
-    const icon = { 'PubMed': '📄', 'Mayo Clinic': '🏥', 'Cleveland Clinic': '🏥', 'Claude': '🤖' }[source] || '🌐';
+    const icon = { 'PubMed': '📄', 'Cleveland Clinic': '🏥', 'NIH MedlinePlus': '🏛', 'NHLBI': '🏛', 'AAOS OrthoInfo': '🦴', 'Claude': '🤖' }[source] || '🌐';
     row.innerHTML = `<span class="src-label">${icon} ${esc(source)}</span><span class="src-status">${esc(status)}</span>`;
     prog.appendChild(row);
     progressRows[source] = row;

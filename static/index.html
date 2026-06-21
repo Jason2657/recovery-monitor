@@ -1566,9 +1566,47 @@ function setAgentComplete(id, brief, elapsed) {
         <div style="padding-top:0.4rem">${dropdownContent}</div>
       </details>`;
   } else if (id === 'reconciler') {
-    const sc = brief.risk_score ?? 'N/A';
-    const conf = brief.confidence ? ` · ${brief.confidence} confidence` : '';
-    detail = `Risk <strong style="color:${color};font-size:1.05rem">${sc}/100</strong><span class="text-slate-500">${esc(conf)}</span>`;
+    const sc   = brief.risk_score ?? 'N/A';
+    const conf = brief.confidence || '';
+    const rebuttals = brief.debate_rebuttals || [];
+
+    const confColor = conf === 'high' ? '#4ade80' : conf === 'medium' ? '#fb923c' : '#94a3b8';
+    const primaryLine = `Risk <strong style="color:${color};font-size:1.05rem">${sc}/100</strong>`
+      + (conf ? ` <span style="color:${confColor};font-size:0.67rem">${esc(conf)} confidence</span>` : '');
+
+    // Convergence argument (why multi-stream signals can't all be benign)
+    const convergenceHtml = brief.convergence_argument
+      ? `<div style="color:#94a3b8;font-size:0.65rem;line-height:1.35;margin-bottom:0.4rem;padding-bottom:0.35rem;border-bottom:1px solid #1e293b">${esc(brief.convergence_argument)}</div>`
+      : '';
+
+    // Per-round ruling: Reconciler responds to each Skeptic round
+    const rebuttalsHtml = rebuttals.map((r, i) => {
+      const accepted  = (r.ruling || '').toLowerCase() === 'accepted';
+      const rulingColor = accepted ? '#4ade80' : '#f87171';
+      const rulingLabel = accepted ? '✓ Accepted' : '✗ Overruled';
+      return `<div style="border:1px solid ${accepted?'#14532d':'#450a0a'};border-radius:5px;padding:0.4rem 0.5rem;margin-top:${i===0?'0':'0.35rem'};background:${accepted?'rgba(74,222,128,0.04)':'rgba(248,113,113,0.04)'}">
+        <div style="font-size:0.62rem;font-weight:700;color:#475569;text-transform:uppercase;margin-bottom:0.2rem">Round ${r.round||i+1} · ${esc(r.finding||'')}</div>
+        <div style="color:#64748b;font-size:0.65rem;font-style:italic;margin-bottom:0.2rem">⚔ Skeptic: "${esc(r.skeptic_hypothesis||'')}"</div>
+        <div style="display:flex;gap:0.4rem;align-items:start">
+          <span style="color:${rulingColor};font-weight:700;font-size:0.65rem;flex-shrink:0">${rulingLabel}</span>
+          <span style="color:#cbd5e1;font-size:0.65rem;line-height:1.35">${esc(r.reasoning||'')}</span>
+        </div>
+      </div>`;
+    }).join('');
+
+    const dropdownContent = [
+      convergenceHtml,
+      rebuttalsHtml || '<div style="color:#475569;font-size:0.65rem;font-style:italic">No per-round rulings generated.</div>',
+      brief.skeptic_rebuttal
+        ? `<div style="margin-top:0.45rem;padding-top:0.35rem;border-top:1px solid #1e293b"><div style="color:#94a3b8;font-size:0.62rem;font-weight:700;text-transform:uppercase;margin-bottom:0.15rem">Overall rebuttal</div><div style="color:#fca5a5;font-size:0.65rem;line-height:1.35">${esc(brief.skeptic_rebuttal)}</div></div>`
+        : '',
+    ].filter(Boolean).join('');
+
+    detail = `<div>${primaryLine}</div>
+      <details style="margin-top:0.35rem">
+        <summary style="font-size:0.67rem;color:#475569;cursor:pointer;list-style:none;user-select:none" onmouseover="this.style.color='#94a3b8'" onmouseout="this.style.color='#475569'">▸ Rulings on debate (${rebuttals.length} rounds)</summary>
+        <div style="padding-top:0.4rem">${dropdownContent}</div>
+      </details>`;
   } else if (id === 'brief') {
     detail = `<span class="text-slate-400">SBAR ready ↓</span>`;
   }

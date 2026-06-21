@@ -609,6 +609,14 @@ Patient-specific risk narrative:
         "Be specific: include numbers, dates, exact action items with timeframes. "
         "When literature research context is provided, weave it into the brief to make "
         "recommendations evidence-based and specific to this patient's diagnosis.\n\n"
+        "GROUNDING RULES — critical for a clinical handoff (no hallucination):\n"
+        "- State ONLY facts supported by the assessment/patient data below. Do NOT invent or "
+        "extrapolate FUTURE PROJECTIONS (e.g. 'temp will exceed 38°C in ~2 days') or generic "
+        "EPIDEMIOLOGIC STATISTICS (e.g. 'X% readmission risk') that are not in the assessment.\n"
+        "- Every numeric value or date must come from the provided data; if you cite literature, "
+        "attribute it rather than stating a generic statistic as fact.\n"
+        "- Keep the urgency timeframe consistent throughout — match the assessment's time_sensitivity "
+        "(do not write '2-4h' in one place and '4h' in another).\n\n"
         "FORMATTING RULES — follow exactly:\n"
         "1. Each section header is on its own line: **SITUATION**, **BACKGROUND**, **ASSESSMENT**, **RECOMMENDATION**\n"
         "2. Section content immediately follows the header with one blank line between them\n"
@@ -761,6 +769,7 @@ def run_full_pipeline(
     *,
     use_mesh: bool = False,
     web_research: dict = None,
+    run_judge: bool = True,
 ) -> tuple:
     """Run the governed 7-agent pipeline, saving full reasoning to a JSON log.
 
@@ -831,6 +840,7 @@ def run_full_pipeline(
 
     with tracing.span("pipeline", patient_id=patient_id, mesh=bool(use_mesh)):
         trace_id = tracing.current_trace_id()
+        span_id = tracing.current_span_id()  # root span id — LLM-judge evals attach here
 
         # --- parallel analysis: 3 independent workers run concurrently --------
         # Prefer Fetch.ai mesh (real uAgents in a Bureau) when use_mesh=True;
@@ -940,6 +950,19 @@ def run_full_pipeline(
     full_log["tracing_enabled"] = tracing.is_enabled()
     full_log["band_audit"] = band.audit.as_dicts()
     full_log["self_correction"] = _run_correction_loop(profile, assessment)
+
+    # ---- Arize LLM-as-judge: grade output quality + log as eval feedback on the span ----
+    full_log["span_id"] = span_id
+    if run_judge:
+        try:
+            from observability import llm_judge
+
+            evals = llm_judge.judge_run(full_log, client=client)
+            full_log["llm_evals"] = [e.as_dict() for e in evals]
+            tracing.flush()  # export the span before attaching evals to it
+            full_log["evals_logged"] = llm_judge.log_evals_to_arize(span_id, evals)
+        except Exception as exc:  # never break the pipeline
+            full_log["llm_evals_error"] = str(exc)
 
     os.makedirs(log_dir, exist_ok=True)
     ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")

@@ -26,50 +26,87 @@ import config
 # Populated by init_tracing(); stays None when tracing is unavailable.
 _tracer: Any | None = None
 _initialized: bool = False
+_backend: str | None = None  # "arize" | "phoenix" | None
+
+
+def _ensure_anthropic_instrumented(provider) -> None:
+    """Belt-and-suspenders: explicitly instrument the Anthropic SDK in case
+    ``auto_instrument`` didn't pick it up. Safe if already done / package absent."""
+    try:
+        from openinference.instrumentation.anthropic import AnthropicInstrumentor
+
+        inst = AnthropicInstrumentor()
+        # auto_instrument usually already did this; avoid a double-instrument warning.
+        if not getattr(inst, "is_instrumented_by_opentelemetry", False):
+            inst.instrument(tracer_provider=provider)
+    except Exception:  # noqa: BLE001 - already instrumented, or package missing
+        pass
 
 
 def init_tracing(service_name: str | None = None) -> bool:
-    """Initialize Phoenix/Arize tracing from env. Returns True if enabled.
+    """Initialize Arize/Phoenix tracing from env. Returns True if enabled.
+
+    Backend preference (opt-in — clean no-op when nothing is configured):
+      1. **Arize AX cloud** — when ARIZE_API_KEY + ARIZE_SPACE_ID are set; ships
+         OpenInference traces to app.arize.com (the booth environment).
+      2. **Phoenix** (local ``phoenix serve`` or Phoenix Cloud) — when
+         ENABLE_TRACING or PHOENIX_COLLECTOR_ENDPOINT is set.
+      3. No-op otherwise.
 
     Safe to call repeatedly. Never raises — on any failure tracing stays a no-op.
     """
-    global _tracer, _initialized
+    global _tracer, _initialized, _backend
     if _initialized:
         return _tracer is not None
     _initialized = True
 
-    # Opt-in: stay a clean no-op unless a collector/Arize is configured, so the
-    # demo never spews connection errors when nothing is listening.
-    if not (
-        os.getenv("ENABLE_TRACING")
-        or os.getenv("PHOENIX_COLLECTOR_ENDPOINT")
-        or config.ARIZE_API_KEY
-    ):
-        _tracer = None
-        return False
+    project = service_name or config.ARIZE_PROJECT_NAME
 
-    try:
-        # phoenix.otel.register() returns a provider already wired to an OTLP
-        # collector (local Phoenix UI by default). With ARIZE_* keys set, the same
-        # OpenInference instrumentation can ship to Arize cloud instead.
-        from phoenix.otel import register
+    # 1) Arize AX cloud — the real sponsor environment.
+    if config.ARIZE_API_KEY and config.ARIZE_SPACE_ID:
+        try:
+            from arize.otel import register as arize_register
 
-        provider = register(
-            project_name=service_name or config.SERVICE_NAME,
-            auto_instrument=True,  # picks up openinference-instrumentation-anthropic
-        )
-        _tracer = provider.get_tracer(__name__)
-        return True
-    except Exception:  # noqa: BLE001 - tracing must NEVER break the pipeline
-        # TODO(observability-owner): when ARIZE_API_KEY/ARIZE_SPACE_ID are set,
-        # configure the OTLP exporter to ship spans to Arize directly.
-        _tracer = None
-        return False
+            provider = arize_register(
+                space_id=config.ARIZE_SPACE_ID,
+                api_key=config.ARIZE_API_KEY,
+                project_name=project,
+                auto_instrument=True,  # picks up openinference-instrumentation-anthropic
+            )
+            _ensure_anthropic_instrumented(provider)
+            _tracer = provider.get_tracer(__name__)
+            _backend = "arize"
+            return True
+        except Exception:  # noqa: BLE001 - never break the pipeline; try Phoenix
+            _tracer = None
+
+    # 2) Phoenix (local collector or Phoenix Cloud).
+    if os.getenv("ENABLE_TRACING") or os.getenv("PHOENIX_COLLECTOR_ENDPOINT"):
+        try:
+            from phoenix.otel import register
+
+            kwargs: dict = {"project_name": project, "auto_instrument": True}
+            if os.getenv("PHOENIX_API_KEY"):
+                kwargs["api_key"] = os.getenv("PHOENIX_API_KEY")
+            provider = register(**kwargs)
+            _ensure_anthropic_instrumented(provider)
+            _tracer = provider.get_tracer(__name__)
+            _backend = "phoenix"
+            return True
+        except Exception:  # noqa: BLE001
+            _tracer = None
+
+    return False
 
 
 def is_enabled() -> bool:
     """Whether a real tracer is active."""
     return _tracer is not None
+
+
+def backend() -> str | None:
+    """Which tracing backend is live: 'arize', 'phoenix', or None."""
+    return _backend
 
 
 @contextlib.contextmanager
@@ -98,6 +135,37 @@ def current_trace_id() -> str | None:
     except Exception:  # noqa: BLE001
         return None
     return None
+
+
+def current_span_id() -> str | None:
+    """Hex span id (16 chars) of the active span — call INSIDE the span you want
+    evals attached to (e.g. the pipeline root span). None when tracing is off."""
+    if _tracer is None:
+        return None
+    try:
+        from opentelemetry import trace
+
+        ctx = trace.get_current_span().get_span_context()
+        if ctx and ctx.span_id:
+            return format(ctx.span_id, "016x")
+    except Exception:  # noqa: BLE001
+        return None
+    return None
+
+
+def flush(timeout_millis: int = 5000) -> None:
+    """Force-export pending spans so evaluations logged right after attach to the
+    span reliably. No-op when tracing is off; never raises."""
+    if _tracer is None:
+        return
+    try:
+        from opentelemetry import trace
+
+        provider = trace.get_tracer_provider()
+        if hasattr(provider, "force_flush"):
+            provider.force_flush(timeout_millis=timeout_millis)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def traced(name: str | None = None) -> Callable:

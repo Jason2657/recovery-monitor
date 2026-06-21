@@ -544,6 +544,7 @@ async def analyze(patient_id: str, mesh: bool = False):
                 log_dir="logs",
                 use_mesh=mesh,
                 web_research=research_cache.get(patient_id),
+                run_judge=False,  # keep live web UI fast; LLM-judge runs in the offline eval suite
             )
             last_results[patient_id] = {
                 "risk_score": full_log.get("risk_score", 0),

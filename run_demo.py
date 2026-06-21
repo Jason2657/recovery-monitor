@@ -47,8 +47,10 @@ def _sponsor_banner(use_mesh: bool) -> None:
     fetch_state = (
         "[green]available[/green]" if fetch_mesh.is_available() else "[yellow]not installed[/yellow]"
     )
+    _bk = tracing.backend()
     arize_state = (
-        "[green]live (Phoenix/Arize)[/green]" if tracing.is_enabled() else "[yellow]no-op (no collector)[/yellow]"
+        f"[green]live → {'Arize AX' if _bk == 'arize' else 'Phoenix'}[/green]"
+        if tracing.is_enabled() else "[yellow]no-op (no collector)[/yellow]"
     )
     t = Table(show_header=False, box=None, padding=(0, 1))
     t.add_column(style="bold")
@@ -116,7 +118,25 @@ def _arize_panel(full_log: dict) -> None:
         )
     else:
         lines.append(f"Self-correction: [dim]{escape(str(sc.get('reason', 'n/a')))}[/dim]")
-    console.print(Panel("\n".join(lines), title="[bold]Arize — observability + self-correction[/bold]", border_style="magenta"))
+
+    # LLM-as-judge evaluator results (logged to Arize as feedback on the trace)
+    evals = full_log.get("llm_evals", [])
+    if evals:
+        lines.append("")
+        for e in evals:
+            lbl = e.get("label", "?")
+            col = "green" if lbl == "good" else "yellow"
+            lines.append(
+                f"LLM judge · {e.get('name')}: [{col}]{lbl}[/{col}] ({e.get('score')}) "
+                f"— [dim]{escape(str(e.get('explanation', ''))[:88])}[/dim]"
+            )
+        lines.append(
+            "evals → Arize: "
+            + ("[green]logged ✓[/green]" if full_log.get("evals_logged") else "[dim]not logged[/dim]")
+        )
+    if tracing.backend() == "arize":
+        lines.append(f"[dim]View in Arize → app.arize.com (project: {config.ARIZE_PROJECT_NAME})[/dim]")
+    console.print(Panel("\n".join(lines), title="[bold]Arize — traces + LLM-judge evals + self-correction[/bold]", border_style="magenta"))
 
 
 def main() -> int:

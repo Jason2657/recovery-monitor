@@ -75,6 +75,8 @@ def set_risk_threshold(value: float) -> float:
 # --------------------------------------------------------------------------- #
 ARIZE_API_KEY: str | None = os.getenv("ARIZE_API_KEY") or None
 ARIZE_SPACE_ID: str | None = os.getenv("ARIZE_SPACE_ID") or None
+#: Arize/Phoenix project name traces + evals are grouped under (what judges open).
+ARIZE_PROJECT_NAME: str = os.getenv("ARIZE_PROJECT_NAME") or os.getenv("OTEL_SERVICE_NAME", "recovery-monitor")
 BAND_API_KEY: str | None = os.getenv("BAND_API_KEY") or None
 DEEPGRAM_API_KEY: str | None = os.getenv("DEEPGRAM_API_KEY") or None
 

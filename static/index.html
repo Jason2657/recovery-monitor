@@ -45,6 +45,7 @@
   .tilt-active-pill { background:rgba(239,68,68,0.18); color:#f87171; border:1px solid rgba(239,68,68,0.4); animation:pulse-red 1.1s ease-in-out infinite; }
   .tilt-idle-pill   { background:rgba(34,197,94,0.12); color:#4ade80; border:1px solid rgba(34,197,94,0.25); }
   @keyframes pulse-red { 0%,100%{box-shadow:0 0 0 0 rgba(239,68,68,0.35)} 50%{box-shadow:0 0 0 5px rgba(239,68,68,0)} }
+  @keyframes spin { to { transform: rotate(360deg); } }
   .vital-tile { background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:10px; padding:10px 14px; text-align:center; }
   .vital-value { font-size:1.4rem; font-weight:800; line-height:1.1; }
   .vital-label { font-size:0.65rem; font-weight:600; color:#4b5563; text-transform:uppercase; letter-spacing:0.07em; margin-top:2px; }
@@ -1047,15 +1048,15 @@ function setResearchMode(mode) {
 function showSimpleResearch(text) {
   const resultsEl = document.getElementById('research-results');
   resultsEl.classList.remove('hidden');
-  // Replace results content with plain-language card
-  const existing = resultsEl.querySelector('#simple-research-card');
-  // Hide clinical sections, show simple card
+  // Hide all clinical sections, show only the simple card
   Array.from(resultsEl.children).forEach(el => {
-    el.style.display = (el.id === 'simple-research-card') ? '' : 'none';
+    el.style.display = el.id === 'simple-research-card' ? '' : 'none';
   });
+  const existing = resultsEl.querySelector('#simple-research-card');
+  const rendered = formatSbar(text);   // handles # headers, ## sections, - bullets, **bold**
   if (existing) {
     existing.style.display = '';
-    existing.querySelector('.simple-text').innerHTML = text.replace(/\n\n+/g, '</p><p>').replace(/\n/g, '<br>');
+    existing.querySelector('.simple-text').innerHTML = rendered;
     return;
   }
   const card = document.createElement('div');
@@ -1064,13 +1065,11 @@ function showSimpleResearch(text) {
   card.style.background = 'rgba(59,130,246,0.05)';
   card.innerHTML = `
     <div class="flex items-center justify-between mb-3">
-      <p class="text-xs font-semibold text-blue-400 uppercase tracking-widest">👵 Patient-Friendly Summary</p>
+      <p class="text-xs font-semibold text-blue-400 uppercase tracking-widest">👵 Patient-Friendly Guide</p>
       <button onclick="playText(document.querySelector('#simple-research-card .simple-text').innerText, null)"
         class="tts-btn flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium">🔊 Play</button>
     </div>
-    <div class="simple-text text-sm text-slate-300 leading-relaxed space-y-2">
-      <p>${text.replace(/\n\n+/g, '</p><p>').replace(/\n/g, '<br>')}</p>
-    </div>`;
+    <div class="simple-text sbar-content text-sm leading-relaxed">${rendered}</div>`;
   resultsEl.appendChild(card);
 }
 
@@ -1394,91 +1393,125 @@ function setSbarMode(mode) {
     });
 }
 
+// ─── Shared markdown/SBAR renderer ───────────────────────────────────────────
+// Handles both clinical SBAR (**SECTION** headers, numbered sbar-list)
+// and patient-friendly markdown (# Title, ## Section, - bullets, 1. lists).
 function formatSbar(text) {
   if (!text) return '';
-  // Normalize line endings, collapse 3+ newlines
   const lines = text.replace(/\r\n/g, '\n').replace(/\n{3,}/g, '\n\n').split('\n');
 
-  // Pre-pass: fix split numbered items where number is alone on a line
-  // Pattern: "1.\n" then "Within 24 hours:\n" then content → merge to one line
+  // Pre-pass: merge orphaned numbered items ("1.\nWithin 24h:\ncontent" → "1. Within 24h: content")
   const merged = [];
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const numOnly = line.match(/^(\d+)\.\s*$/);
+    const numOnly = lines[i].match(/^(\d+)\.\s*$/);
     if (numOnly && i + 1 < lines.length) {
-      // Merge with next 1-2 lines
       let combined = numOnly[1] + '. ';
       let j = i + 1;
-      // Skip blank lines
       while (j < lines.length && lines[j].trim() === '') j++;
-      // Gather up to 2 continuation lines (timeframe + content)
-      while (j < lines.length && !lines[j].match(/^\d+\.$/) && !lines[j].match(/^\*\*[A-Z]/) && lines[j].trim() !== '') {
+      while (j < lines.length && lines[j].trim() !== '' &&
+             !lines[j].match(/^\d+\.\s*$/) &&
+             !lines[j].match(/^\*\*[A-Z]/) &&
+             !lines[j].match(/^#{1,3} /)) {
         combined += lines[j].trim() + ' ';
         j++;
       }
       merged.push(combined.trim());
       i = j - 1;
     } else {
-      merged.push(line);
+      merged.push(lines[i]);
     }
   }
 
-  // Render
   let html = '';
-  let inList = false;
+  let inOl = false, inUl = false;
+
+  const closeOl = () => { if (inOl) { html += '</ol>'; inOl = false; } };
+  const closeUl = () => { if (inUl) { html += '</ul>'; inUl = false; } };
+  const closeLists = () => { closeOl(); closeUl(); };
 
   for (let i = 0; i < merged.length; i++) {
-    const raw = merged[i];
-    const line = raw.trim();
+    const line = merged[i].trim();
 
-    // Section headers: **SITUATION** **BACKGROUND** **ASSESSMENT** **RECOMMENDATION**
-    const hdrMatch = line.match(/^\*\*([A-Z][A-Z\s\/]+)\*\*\s*$/);
-    if (hdrMatch) {
-      if (inList) { html += '</ol>'; inList = false; }
-      html += `<div class="sbar-section-hdr">${hdrMatch[1]}</div>`;
+    // Markdown H1: # Title  →  large section header (used by patient-friendly mode)
+    if (/^# .+/.test(line)) {
+      closeLists();
+      html += `<h2 class="text-base font-bold text-white mt-5 mb-2 pb-1.5" style="border-bottom:1px solid rgba(255,255,255,0.08)">${inlineFmt(line.slice(2))}</h2>`;
       continue;
     }
 
-    // HR separator ---
-    if (line === '---') {
-      if (inList) { html += '</ol>'; inList = false; }
+    // Markdown H2: ## Subsection
+    if (/^## .+/.test(line)) {
+      closeLists();
+      html += `<div class="sbar-section-hdr mt-3">${inlineFmt(line.slice(3))}</div>`;
+      continue;
+    }
+
+    // Markdown H3: ### Minor heading
+    if (/^### .+/.test(line)) {
+      closeLists();
+      html += `<p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mt-2 mb-0.5">${inlineFmt(line.slice(4))}</p>`;
+      continue;
+    }
+
+    // SBAR section headers: **SITUATION**, **BACKGROUND**, **ASSESSMENT**, **RECOMMENDATION**
+    const sbarHdr = line.match(/^\*\*([A-Z][A-Z\s\/]+)\*\*\s*$/);
+    if (sbarHdr) {
+      closeLists();
+      html += `<div class="sbar-section-hdr">${sbarHdr[1]}</div>`;
+      continue;
+    }
+
+    // HR
+    if (line === '---' || line === '***' || line === '___') {
+      closeLists();
       html += '<hr>';
       continue;
     }
 
-    // Numbered list item: "1. Within 24 hours: text"
-    const listMatch = line.match(/^(\d+)\.\s+(.+)$/);
-    if (listMatch) {
-      if (!inList) { html += '<ol class="sbar-list">'; inList = true; }
-      // Bold the timeframe portion (text before first colon followed by space)
-      const itemContent = listMatch[2].replace(/^([^:]+:\s*)/, '<strong>$1</strong>');
-      html += `<li>${inlineFmt(itemContent)}</li>`;
+    // Numbered list: "1. text" — inside SBAR uses styled sbar-list, elsewhere plain
+    const numItem = line.match(/^(\d+)\.\s+(.+)$/);
+    if (numItem) {
+      closeUl();
+      if (!inOl) { html += '<ol class="sbar-list">'; inOl = true; }
+      const content = numItem[2].replace(/^([^:]+:\s*)/, '<strong>$1</strong>');
+      html += `<li>${inlineFmt(content)}</li>`;
+      continue;
+    }
+
+    // Unordered list: "- item" or "* item"
+    const ulItem = line.match(/^[-*+]\s+(.+)$/);
+    if (ulItem) {
+      closeOl();
+      if (!inUl) { html += '<ul class="my-1.5 space-y-1">'; inUl = true; }
+      html += `<li class="flex gap-2 text-sm text-slate-300 leading-relaxed"><span class="text-blue-400/60 flex-shrink-0 mt-0.5">•</span><span>${inlineFmt(ulItem[1])}</span></li>`;
       continue;
     }
 
     // Empty line
     if (!line) {
-      if (inList) { html += '</ol>'; inList = false; }
+      closeLists();
       continue;
     }
 
-    if (inList) { html += '</ol>'; inList = false; }
+    closeLists();
 
-    // Italic footnote (*text*)
+    // Italic footnote *text* (not **bold**)
     if (line.startsWith('*') && line.endsWith('*') && !line.startsWith('**')) {
       html += `<p class="sbar-footnote">${inlineFmt(line.slice(1, -1))}</p>`;
     } else {
       html += `<p>${inlineFmt(line)}</p>`;
     }
   }
-  if (inList) html += '</ol>';
+  closeLists();
   return html;
 }
 
 function inlineFmt(text) {
+  // Bold before italic so **text** isn't confused with *text*
   return text
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-    .replace(/\*([^*]+)\*/g, '<em>$1</em>');
+    .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+    .replace(/`([^`]+)`/g, '<code style="background:rgba(255,255,255,0.07);padding:1px 5px;border-radius:4px;font-size:0.82em">$1</code>');
 }
 
 function copySbar() {

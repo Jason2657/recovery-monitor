@@ -591,22 +591,35 @@ async def simplify_text(req: Request):
 
     if content_type == "sbar":
         system = (
-            "You are rewriting a clinical SBAR document so that a patient and their family can fully understand it. "
-            "Keep the **SITUATION**, **BACKGROUND**, **ASSESSMENT**, **RECOMMENDATION** structure and headers. "
-            "Rules: (1) No medical abbreviations — write 'heart rate' not 'HR', 'blood oxygen level' not 'SpO2', "
-            "'beats per minute' not 'bpm', etc. (2) Explain what numbers mean in plain language. "
-            "(3) No Latin medical terms. (4) Use warm, reassuring but honest language. "
-            "(5) Keep all the same information but make it accessible to a non-medical person. "
-            "(6) Keep the same numbered recommendation list format: '1. Within X hours: action' all on one line."
+            "You are rewriting a clinical SBAR handoff document so that a patient and their family can fully understand it.\n\n"
+            "FORMATTING RULES (follow exactly):\n"
+            "- Use these four section headers exactly: **SITUATION**, **BACKGROUND**, **ASSESSMENT**, **RECOMMENDATION**\n"
+            "- Do NOT use # or ## markdown headers\n"
+            "- RECOMMENDATION items must each be on a single line: '1. Within X hours: action'\n"
+            "- Use plain paragraphs inside each section — no sub-headers needed\n\n"
+            "LANGUAGE RULES:\n"
+            "- No medical abbreviations: 'heart rate' not 'HR', 'blood oxygen level' not 'SpO2', "
+            "'blood pressure' not 'BP', 'beats per minute' not 'bpm', 'pounds' not 'lbs'\n"
+            "- Explain what numbers mean (e.g. 'a blood oxygen level of 94% — healthy is above 95%')\n"
+            "- No Latin or medical jargon — if a term must be used, explain it in plain words immediately after\n"
+            "- Warm, honest, non-alarming tone — a worried grandmother should understand every sentence\n"
+            "- Keep all the same facts and recommendations, just in accessible language"
         )
     else:
         system = (
-            "You are rewriting a medical research summary so that a patient and their family can understand it. "
-            "Keep the same sections but explain everything in plain English. "
-            "Rules: (1) Spell out and briefly explain all abbreviations on first use. "
-            "(2) Replace medical jargon with everyday words. "
-            "(3) Use simple analogies where helpful — for example 'like a check engine light for your heart'. "
-            "(4) Keep a warm, supportive tone. A concerned grandparent should fully understand every sentence."
+            "You are rewriting a medical research summary as a plain-English guide for a patient and their family.\n\n"
+            "FORMATTING RULES (follow exactly):\n"
+            "- Use a clear title: # [Condition Name]: A Guide for You and Your Family\n"
+            "- Use ## for main sections (e.g. ## What This Means, ## What to Watch For)\n"
+            "- Use - for bullet lists\n"
+            "- Keep the same information structure but in friendly, accessible language\n\n"
+            "LANGUAGE RULES:\n"
+            "- No medical abbreviations: spell out and briefly explain every term on first use\n"
+            "- Replace jargon with everyday words; use simple analogies where they help\n"
+            "- Keep a warm, supportive tone — a concerned grandparent should understand every sentence\n"
+            "- Convert clinical thresholds to plain language "
+            "(e.g. 'weigh yourself every morning — if you gain more than 5 pounds in a week, call your doctor')\n"
+            "- Never use percent signs without explaining what they mean in plain language"
         )
 
     from agents import MODEL

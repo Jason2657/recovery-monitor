@@ -174,6 +174,9 @@
 
   /* Tilt unstable state */
   .tilt-unstable-pill { background:rgba(239,68,68,0.18); color:#f87171; border:1px solid rgba(239,68,68,0.4); animation:pulse-red 1.1s ease-in-out infinite; }
+  /* Light sensor states */
+  .light-dark-pill  { background:rgba(99,102,241,0.12); color:#818cf8; border:1px solid rgba(99,102,241,0.25); }
+  .light-on-pill    { background:rgba(251,191,36,0.18); color:#fbbf24; border:1px solid rgba(251,191,36,0.4); animation:pulse-blue 1.2s ease-in-out infinite; }
 
   /* Arduino indicator */
   .arduino-badge { font-size:0.62rem; font-weight:600; padding:2px 7px; border-radius:12px;
@@ -366,15 +369,65 @@
               <div class="vital-tile flex flex-col items-center justify-center gap-1.5">
                 <div id="tilt-pill" class="tilt-idle-pill text-xs font-bold px-2.5 py-1 rounded-full transition-all">● Stable</div>
                 <div class="vital-label">Tilt / Motion</div>
-                <div class="text-xs text-slate-500"><span id="tilt-count">0</span> disturbances</div>
+                <div class="text-xs text-slate-500"><span id="tilt-count">0</span> events</div>
               </div>
             </div>
 
-            <!-- Tilt event log -->
+            <!-- Light sensor row -->
+            <div class="grid grid-cols-2 gap-2">
+              <!-- Light status tile -->
+              <div class="vital-tile flex flex-col gap-1.5">
+                <div class="flex items-center justify-between">
+                  <span class="vital-label">💡 Room Light</span>
+                  <div id="light-pill" class="light-dark-pill text-xs font-bold px-2 py-0.5 rounded-full transition-all">🌙 Dark</div>
+                </div>
+                <div class="flex items-end gap-3 mt-0.5">
+                  <div>
+                    <div class="vital-value text-yellow-400" id="lv-light">–</div>
+                    <div class="vital-label">Sensor raw</div>
+                  </div>
+                  <div class="ml-auto text-right">
+                    <div class="text-lg font-bold text-yellow-400" id="light-wake-count">0</div>
+                    <div class="vital-label">Wake events</div>
+                  </div>
+                </div>
+              </div>
+              <!-- Light bar indicator -->
+              <div class="vital-tile flex flex-col justify-between gap-1">
+                <span class="vital-label">Light intensity</span>
+                <div class="relative h-3 rounded-full overflow-hidden" style="background:rgba(255,255,255,0.05)">
+                  <div id="light-bar" class="h-full rounded-full transition-all duration-500" style="width:0%;background:linear-gradient(90deg,#312e81,#fbbf24)"></div>
+                </div>
+                <div class="flex justify-between text-xs text-slate-700">
+                  <span>Dark (sleep)</span><span>Light (awake)</span>
+                </div>
+                <div class="text-xs text-slate-600 mt-1">Threshold: 200 · <span id="light-status-text">Monitoring…</span></div>
+              </div>
+            </div>
+
+            <!-- Sleep activity histogram -->
             <div>
-              <p class="text-xs font-semibold text-slate-600 uppercase tracking-widest mb-1.5">Sleep Disturbance Log (tilt sensor)</p>
-              <div id="tilt-log" class="space-y-1 max-h-24 overflow-y-auto">
-                <p class="text-xs text-slate-700 italic">No disturbances recorded yet.</p>
+              <p class="text-xs font-semibold text-slate-600 uppercase tracking-widest mb-1.5">Sleep Activity (last 60s)</p>
+              <canvas id="sleep-histogram" height="55"
+                style="width:100%;height:55px;border-radius:8px;background:rgba(0,0,0,0.2);display:block"></canvas>
+              <div class="flex justify-between mt-1 text-xs text-slate-700">
+                <span>60s ago</span><span>30s ago</span><span>now</span>
+              </div>
+            </div>
+
+            <!-- Event logs side by side -->
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <p class="text-xs font-semibold text-slate-600 uppercase tracking-widest mb-1.5">Motion Events</p>
+                <div id="tilt-log" class="space-y-0.5 max-h-20 overflow-y-auto">
+                  <p class="text-xs text-slate-700 italic">No events yet.</p>
+                </div>
+              </div>
+              <div>
+                <p class="text-xs font-semibold text-slate-600 uppercase tracking-widest mb-1.5">Light-On Events</p>
+                <div id="light-log" class="space-y-0.5 max-h-20 overflow-y-auto">
+                  <p class="text-xs text-slate-700 italic">No events yet.</p>
+                </div>
               </div>
             </div>
           </div>
@@ -782,11 +835,17 @@
 // ─── Live monitor state ───────────────────────────────────────────────────────
 let liveES = null;           // EventSource for live stream
 let liveActive = false;
-const HR_WINDOW = 60;        // seconds of history on the rolling chart
-const hrBuffer = [];         // {t, hr} rolling buffer
-let tiltEvents = [];         // timestamps of tilt events
-let liveCanvas = null;
-let liveCtx = null;
+const HR_WINDOW = 60;
+const hrBuffer  = [];
+let tiltEvents  = [];
+let lightEvents = [];        // timestamps of light-on wake events
+// histogram buffers: one sample per second for 60s
+const histTilt  = new Array(HR_WINDOW).fill(0);   // 1 = tilt active
+const histLight = new Array(HR_WINDOW).fill(0);   // 0=dark,1=light-on
+let liveCanvas  = null;
+let liveCtx     = null;
+let sleepHistCanvas = null;
+let sleepHistCtx    = null;
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const AGENT_META = {
@@ -1412,21 +1471,33 @@ function renderRisk(d) {
 }
 
 function buildGauge(score, level) {
-  const color = SEV_COLORS[level]||'#6b7280';
-  const cx=80, cy=86, r=60, circ=2*Math.PI*r;
-  const trackLen=circ*0.75, scoreLen=(score/100)*trackLen;
-  return `<svg width="160" height="130" viewBox="0 0 160 130">
-    <defs><filter id="glow"><feGaussianBlur stdDeviation="3" result="cb"/>
-    <feMerge><feMergeNode in="cb"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>
-    <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#1e2538" stroke-width="10"
-      stroke-dasharray="${trackLen.toFixed(2)} ${circ.toFixed(2)}" stroke-linecap="round" transform="rotate(225 ${cx} ${cy})"/>
-    <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${color}" stroke-width="10"
+  const color = SEV_COLORS[level] || '#6b7280';
+  // Centre the arc with enough margin on all sides so nothing clips
+  const cx = 90, cy = 90, r = 68, sw = 11;
+  const circ = 2 * Math.PI * r;
+  const trackLen = circ * 0.75;
+  const scoreLen = (score / 100) * trackLen;
+  const W = 180, H = 155;
+  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="overflow:visible">
+    <defs>
+      <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+        <feGaussianBlur stdDeviation="4" result="cb"/>
+        <feMerge><feMergeNode in="cb"/><feMergeNode in="SourceGraphic"/></feMerge>
+      </filter>
+    </defs>
+    <!-- Track -->
+    <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#1e2538" stroke-width="${sw}"
+      stroke-dasharray="${trackLen.toFixed(2)} ${circ.toFixed(2)}" stroke-linecap="round"
+      transform="rotate(225 ${cx} ${cy})"/>
+    <!-- Score arc -->
+    <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${color}" stroke-width="${sw}"
       stroke-dasharray="${scoreLen.toFixed(2)} ${circ.toFixed(2)}" stroke-linecap="round"
       filter="url(#glow)" transform="rotate(225 ${cx} ${cy})"/>
-    <text x="${cx}" y="${cy-4}" text-anchor="middle" fill="${color}" font-size="28" font-weight="800"
-      font-family="Inter,system-ui,sans-serif">${score}</text>
-    <text x="${cx}" y="${cy+14}" text-anchor="middle" fill="#4b5563" font-size="11"
-      font-family="Inter,system-ui,sans-serif">/100</text>
+    <!-- Score number -->
+    <text x="${cx}" y="${cy + 2}" text-anchor="middle" fill="${color}"
+      font-size="34" font-weight="800" font-family="Inter,system-ui,sans-serif">${score}</text>
+    <text x="${cx}" y="${cy + 20}" text-anchor="middle" fill="#4b5563"
+      font-size="12" font-family="Inter,system-ui,sans-serif">/100</text>
   </svg>`;
 }
 
@@ -1629,12 +1700,24 @@ function toggleLiveMonitor() {
 function startLiveMonitor(pid) {
   if (liveES) { liveES.close(); }
   hrBuffer.length = 0;
-  tiltEvents = [];
+  tiltEvents  = [];
+  lightEvents = [];
+  histTilt.fill(0);
+  histLight.fill(0);
   liveActive = true;
 
-  // Init canvas
+  // Init HR canvas
   liveCanvas = document.getElementById('live-hr-canvas');
   liveCtx    = liveCanvas.getContext('2d');
+
+  // Init sleep histogram canvas
+  sleepHistCanvas = document.getElementById('sleep-histogram');
+  sleepHistCtx    = sleepHistCanvas ? sleepHistCanvas.getContext('2d') : null;
+  if (sleepHistCanvas) {
+    const r2 = sleepHistCanvas.getBoundingClientRect();
+    sleepHistCanvas.width  = (r2.width  || 600) * (window.devicePixelRatio || 1);
+    sleepHistCanvas.height = (r2.height || 55)  * (window.devicePixelRatio || 1);
+  }
 
   // Set internal resolution to match display size
   const rect = liveCanvas.getBoundingClientRect();
@@ -1692,7 +1775,7 @@ function onLiveData(d) {
     const cnt = parseInt(document.getElementById('tilt-count').textContent);
     if (d.tilt_count > cnt) {
       tiltEvents.unshift(d.timestamp);
-      updateTiltLog(d.tilt_count);
+      updateTiltLog();
     }
   } else {
     pill.className = 'tilt-idle-pill text-xs font-bold px-2.5 py-1 rounded-full transition-all';
@@ -1700,32 +1783,119 @@ function onLiveData(d) {
   }
   document.getElementById('tilt-count').textContent = d.tilt_count;
 
+  // Light / photoresistor sensor
+  const lv = d.light_value ?? 300;
+  const isDark = d.light_is_dark ?? true;
+  const lpill = document.getElementById('light-pill');
+  if (lpill) {
+    lpill.className = isDark
+      ? 'light-dark-pill text-xs font-bold px-2 py-0.5 rounded-full transition-all'
+      : 'light-on-pill  text-xs font-bold px-2 py-0.5 rounded-full transition-all';
+    lpill.textContent = isDark ? '🌙 Dark' : '💡 Awake';
+  }
+  const lvEl = document.getElementById('lv-light');
+  if (lvEl) { lvEl.textContent = lv; lvEl.style.color = isDark ? '#818cf8' : '#fbbf24'; }
+  const lwc = d.light_wake_count ?? 0;
+  const lwcEl = document.getElementById('light-wake-count');
+  if (lwcEl) {
+    const prev = parseInt(lwcEl.textContent) || 0;
+    if (lwc > prev) {
+      lightEvents.unshift(d.timestamp);
+      updateLightLog();
+    }
+    lwcEl.textContent = lwc;
+  }
+  // Light bar (0–400 raw; cap display at 400; inverted: high raw = dark)
+  const barEl = document.getElementById('light-bar');
+  if (barEl) {
+    const pct = Math.min(100, Math.round((400 - Math.min(lv, 400)) / 400 * 100));
+    barEl.style.width = pct + '%';
+  }
+  const stEl = document.getElementById('light-status-text');
+  if (stEl) stEl.textContent = isDark ? 'Room dark — patient asleep' : 'Light detected — patient awake';
+
+  // Histogram buffers — shift and push current sample
+  histTilt.shift();  histTilt.push(d.tilt_active ? 1 : 0);
+  histLight.shift(); histLight.push(isDark ? 0 : 1);
+
   // Arduino vs simulation badge
   const ab = document.getElementById('arduino-badge');
   if (ab) {
-    if (d.arduino_connected) {
-      ab.className = 'arduino-badge';
-      ab.textContent = '🔌 Arduino';
-    } else {
-      ab.className = 'arduino-badge sim';
-      ab.textContent = '⚡ Simulated';
+    ab.className  = d.arduino_connected ? 'arduino-badge' : 'arduino-badge sim';
+    ab.textContent = d.arduino_connected ? '🔌 Arduino' : '⚡ Simulated';
+  }
+
+  // Redraw charts
+  drawHrChart(d.hr);
+  drawSleepHistogram();
+}
+
+function updateTiltLog() {
+  const log = document.getElementById('tilt-log');
+  if (!log) return;
+  if (!tiltEvents.length) { log.innerHTML = '<p class="text-xs text-slate-700 italic">No events yet.</p>'; return; }
+  log.innerHTML = tiltEvents.slice(0, 8).map(ts =>
+    `<div class="flex items-center gap-1.5 text-xs py-0.5">
+      <span class="w-1.5 h-1.5 rounded-full bg-red-500 flex-shrink-0"></span>
+      <span class="text-slate-500 mono">${ts}</span>
+    </div>`
+  ).join('');
+}
+
+function updateLightLog() {
+  const log = document.getElementById('light-log');
+  if (!log) return;
+  if (!lightEvents.length) { log.innerHTML = '<p class="text-xs text-slate-700 italic">No events yet.</p>'; return; }
+  log.innerHTML = lightEvents.slice(0, 8).map(ts =>
+    `<div class="flex items-center gap-1.5 text-xs py-0.5">
+      <span class="w-1.5 h-1.5 rounded-full bg-yellow-400 flex-shrink-0"></span>
+      <span class="text-slate-500 mono">${ts}</span>
+    </div>`
+  ).join('');
+}
+
+function drawSleepHistogram() {
+  if (!sleepHistCtx || !sleepHistCanvas) return;
+  const W = sleepHistCanvas.width, H = sleepHistCanvas.height;
+  const ctx = sleepHistCtx;
+  const dpr = window.devicePixelRatio || 1;
+  const n = histTilt.length;
+  const bw = W / n;
+
+  ctx.clearRect(0, 0, W, H);
+
+  // Background grid lines
+  ctx.strokeStyle = 'rgba(255,255,255,0.04)'; ctx.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) {
+    const y = H * i / 4;
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+  }
+
+  // Draw bars: tilt (red, top half), light wake (yellow, bottom half)
+  const halfH = H / 2;
+  for (let i = 0; i < n; i++) {
+    const x = i * bw;
+    // Tilt — fills down from top
+    if (histTilt[i]) {
+      ctx.fillStyle = 'rgba(239,68,68,0.55)';
+      ctx.fillRect(x, 0, Math.max(1, bw - 1), halfH - 1);
+    }
+    // Light on — fills up from bottom
+    if (histLight[i]) {
+      ctx.fillStyle = 'rgba(251,191,36,0.55)';
+      ctx.fillRect(x, halfH + 1, Math.max(1, bw - 1), halfH - 1);
     }
   }
 
-  // Redraw rolling chart
-  drawHrChart(d.hr);
-}
+  // Centre divider
+  ctx.strokeStyle = 'rgba(255,255,255,0.06)'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(0, halfH); ctx.lineTo(W, halfH); ctx.stroke();
 
-function updateTiltLog(count) {
-  const log = document.getElementById('tilt-log');
-  const events = tiltEvents.slice(0, 8);
-  log.innerHTML = events.map((ts, i) =>
-    `<div class="flex items-center gap-2 text-xs py-0.5">
-      <span class="w-1.5 h-1.5 rounded-full bg-red-500 flex-shrink-0"></span>
-      <span class="text-slate-500 mono">${ts}</span>
-      <span class="text-slate-600">Sleep disturbance detected (tilt sensor)</span>
-    </div>`
-  ).join('');
+  // Labels (top=motion, bottom=light)
+  ctx.fillStyle = 'rgba(239,68,68,0.6)'; ctx.font = `${9 * dpr}px Inter,sans-serif`;
+  ctx.fillText('motion', 4 * dpr, 10 * dpr);
+  ctx.fillStyle = 'rgba(251,191,36,0.6)';
+  ctx.fillText('light', 4 * dpr, H - 3 * dpr);
 }
 
 function drawHrChart(currentHr) {

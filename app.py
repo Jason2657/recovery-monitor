@@ -28,7 +28,7 @@ load_dotenv()
 app = FastAPI(title="PostCare AI Monitor")
 
 # ─── Arduino serial reader (optional — degrades gracefully if not connected) ──
-_arduino_state: dict = {"tilt": 0, "light": 0, "connected": False}
+_arduino_state: dict = {"tilt": 0, "light": 0, "connected": False, "prev_light_dark": True}
 
 def _arduino_reader():
     """Background thread: read tilt/light from Arduino. Auto-retries every 5s."""
@@ -380,13 +380,23 @@ async def live_stream(patient_id: str):
     tilt_count    = 0
     tilt_cooldown = 0
     tilt_timer    = 0
-    _prev_arduino_tilt = 0   # track rising edge from Arduino
+    prev_arduino_tilt = 0   # track rising edge from Arduino
+
+    # Light sensor state  (>200 = dark, <=200 = light on / patient awake)
+    light_value       = 300   # default dark
+    light_is_dark     = True  # True = dark room, False = light on
+    prev_light_dark   = True  # for edge detection
+    light_wake_count  = 0     # dark→light transitions = patient woke & turned on light
+    sim_light_timer   = 0     # simulation: how long light stays on
+    sim_light_cool    = 0     # simulation cooldown between events
 
     # HR drift — subtle slow oscillation to simulate activity/rest cycles
     hr_drift = 0.0
 
     async def generate():
-        nonlocal tilt_active, tilt_count, tilt_cooldown, tilt_timer, hr_drift, _prev_arduino_tilt
+        nonlocal tilt_active, tilt_count, tilt_cooldown, tilt_timer, prev_arduino_tilt
+        nonlocal light_value, light_is_dark, prev_light_dark, light_wake_count
+        nonlocal sim_light_timer, sim_light_cool
         t = 0
         while True:
             # Cardiac variability: sine at ~0.1 Hz + Gaussian noise
@@ -410,11 +420,17 @@ async def live_stream(patient_id: str):
             # ── Tilt sensor: prefer real Arduino, fall back to simulation ──
             if _arduino_state["connected"]:
                 cur_tilt = _arduino_state["tilt"]
-                # Rising edge (0→1): new disturbance event
-                if cur_tilt == 1 and _prev_arduino_tilt == 0:
+                if cur_tilt == 1 and prev_arduino_tilt == 0:
                     tilt_count += 1
                 tilt_active = (cur_tilt == 1)
-                _prev_arduino_tilt = cur_tilt
+                prev_arduino_tilt = cur_tilt
+
+                # Light sensor from Arduino (>200 = dark, <=200 = light on)
+                light_value   = _arduino_state["light"]
+                light_is_dark = (light_value > 200)
+                if not light_is_dark and prev_light_dark:   # dark→light edge
+                    light_wake_count += 1
+                prev_light_dark = light_is_dark
             else:
                 # Simulation: probability-based tilt events
                 tilt_cooldown = max(0, tilt_cooldown - 1)
@@ -429,6 +445,25 @@ async def live_stream(patient_id: str):
                     if tilt_timer <= 0:
                         tilt_active = False
                         tilt_cooldown = random.randint(45, 180)
+
+                # Simulation: light wake events (roughly 1-2 per night)
+                sim_light_cool = max(0, sim_light_cool - 1)
+                if light_is_dark and sim_light_cool == 0:
+                    prob_light = (sleep_ints * 0.5) / (8 * 3600)
+                    if random.random() < prob_light * 30:
+                        light_is_dark = False
+                        light_value   = random.randint(50, 180)
+                        light_wake_count += 1
+                        sim_light_timer = random.randint(15, 60)
+                elif not light_is_dark:
+                    sim_light_timer -= 1
+                    light_value = random.randint(50, 180)
+                    if sim_light_timer <= 0:
+                        light_is_dark = True
+                        light_value   = random.randint(220, 350)
+                        sim_light_cool = random.randint(120, 600)
+                else:
+                    light_value = random.randint(220, 350)
 
             # NEWS2 quick score for live display
             news2 = 0
@@ -455,10 +490,13 @@ async def live_stream(patient_id: str):
                 "temp": temp,
                 "sbp":  round(sbp, 0),
                 "dbp":  round(dbp, 0),
-                "tilt_active":      tilt_active,
-                "tilt_count":       tilt_count,
-                "news2_live":       news2,
-                "condition":        condition,
+                "tilt_active":       tilt_active,
+                "tilt_count":        tilt_count,
+                "light_value":       light_value,
+                "light_is_dark":     light_is_dark,
+                "light_wake_count":  light_wake_count,
+                "news2_live":        news2,
+                "condition":         condition,
                 "arduino_connected": _arduino_state["connected"],
             }
             yield f"data: {json.dumps(payload)}\n\n"

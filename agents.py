@@ -172,6 +172,7 @@ TODAY'S READINGS:
   Blood pressure: {current_readings['systolic_bp']}/{current_readings['diastolic_bp']} mmHg
   Weight: {current_readings['weight_lbs']} lbs (baseline {patient_profile['baseline_weight_lbs']} lbs)
   Steps: {current_readings['steps']} | Sleep interruptions: {current_readings['sleep_interruptions']}
+  Light-on wake events (live): {current_readings.get('light_wake_count', 'N/A')} (patient turned on light mid-sleep)
 
 PRE-COMPUTED NEWS2:
   Total: {news2['total']}/15 — {news2['risk']} Risk

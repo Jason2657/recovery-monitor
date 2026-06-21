@@ -490,17 +490,25 @@ Weight Δ={trends.get('weight_change_lbs_7days','?')} lbs | Activity −{trends.
 Patient red flags: {self_report_out.get('red_flag_phrases', [])}
 Trend convergence: {trend_out.get('trend_convergence', 'N/A')}
 """
-    debate_summary = "; ".join(
-        f"{r.get('finding','?')} → {r.get('verdict','?')}"
-        for r in (skeptic_out.get("debate") or [])
-    )
+    # Build full debate transcript so the Reconciler can respond round-by-round
+    debate_rounds = skeptic_out.get("debate") or []
+    debate_transcript = "\n".join(
+        f"  Round {i+1} [{r.get('finding','?')}]\n"
+        f"    Hypothesis ({r.get('hypothesis_strength','?')}): {r.get('hypothesis','')}\n"
+        f"    Evidence for: {r.get('evidence_for_hypothesis','')}\n"
+        f"    Skeptic self-rebuttal: {r.get('rebuttal','')}\n"
+        f"    Skeptic verdict: {r.get('verdict','?')}"
+        for i, r in enumerate(debate_rounds)
+    ) or "  No debate rounds available."
     evidence_against = f"""
-AGAINST: {skeptic_out.get('overall_benign_narrative', '')}
+AGAINST (Skeptic Agent full debate):
 Strongest benign case: {skeptic_out.get('strongest_hypothesis', skeptic_out.get('strongest_benign_case', ''))}
-Skeptic verdict: {skeptic_out.get('overall_verdict', 'N/A')}
+Skeptic overall verdict: {skeptic_out.get('overall_verdict', 'N/A')}
 Skeptic confidence: {skeptic_out.get('skeptic_confidence', 'N/A')}
-Debate outcomes: {debate_summary or 'N/A'}
-Where skepticism fails: {skeptic_out.get('where_skepticism_fails', '')}
+Where skepticism fails (per Skeptic): {skeptic_out.get('where_skepticism_fails', '')}
+
+DEBATE TRANSCRIPT:
+{debate_transcript}
 """
 
     from patient_data import CLINICAL_KNOWLEDGE_BASE
@@ -539,6 +547,10 @@ Where skepticism fails: {skeptic_out.get('where_skepticism_fails', '')}
         "Return valid JSON only. Every field is required — never omit risk_score or risk_level."
     )
     upstream_quality = f"Upstream agent errors: {upstream_parse_errors}/5 | Data days available: {days_post_discharge}"
+    round_labels = "\n".join(
+        f"  Round {i+1}: \"{r.get('finding','?')}\""
+        for i, r in enumerate(debate_rounds)
+    ) or "  (no rounds)"
     user = f"""Reconcile all evidence for {patient_profile['name']}, Day {days_post_discharge} post-{patient_profile['diagnosis']}.
 
 {evidence_for}
@@ -546,22 +558,36 @@ Where skepticism fails: {skeptic_out.get('where_skepticism_fails', '')}
 
 DATA QUALITY: {upstream_quality}
 
-Weigh convergent evidence against skeptic counterarguments. You MUST assign a concrete risk_score (0-100) and risk_level — never leave these as null, 0 by default, or 'unknown'. Even with limited data, make a calibrated estimate and note uncertainty in confidence and rationale.
+Your task has two parts:
+1. For EACH debate round above, rule on the Skeptic's hypothesis — ACCEPT it (it lowers your score) or OVERRULE it (it does not). Be specific: cite the data that makes you accept or reject.
+2. Produce the final calibrated risk assessment.
+
+Debate rounds to rule on:
+{round_labels}
 
 Return JSON ONLY (all fields required):
 {{
+  "debate_rebuttals": [
+    {{
+      "round": <1-based integer matching the Skeptic's round>,
+      "finding": "the contested finding",
+      "skeptic_hypothesis": "Skeptic's benign explanation in one sentence",
+      "ruling": "accepted|overruled",
+      "reasoning": "1-2 sentences: specific data that drives your ruling, cite numbers"
+    }}
+  ],
   "risk_score": <integer 1-100, never 0 unless truly no risk signal at all>,
   "risk_level": "low|moderate|high|critical",
-  "primary_drivers": ["specific driver with supporting numbers", "second driver with numbers"],
-  "mitigating_factors": ["valid skeptic point that appropriately reduced the score"],
-  "convergence_argument": "why simultaneous trends across 5 independent streams outweigh individual benign explanations",
-  "skeptic_rebuttal": "specific response to the skeptic's strongest argument",
+  "primary_drivers": ["specific driver with supporting numbers", "second driver"],
+  "mitigating_factors": ["valid skeptic point that actually reduced the score"],
+  "convergence_argument": "why simultaneous findings across 5 independent streams cannot all be coincidental",
+  "skeptic_rebuttal": "direct response to the Skeptic's overall_benign_narrative",
   "confidence": "low|medium|high (per the definitions above)",
   "recommended_action": "specific clinical action in 1-2 sentences",
   "time_sensitivity": "immediately|within_4h|within_24h|within_48h|routine",
   "escalation_level": <integer 0-3 matching the escalation protocol levels above>,
   "escalation_recommendation": "Full text starting with 'it would be appropriate to...' — do NOT claim the AI takes action",
-  "rationale": "4-6 sentence explicit reasoning chain: data quality → signal convergence → score justification → confidence rationale"
+  "rationale": "4-6 sentence reasoning chain: data quality → signal convergence → score justification → confidence rationale"
 }}"""
 
     result = _parse_json(_call(client, system, user, max_tokens=4000))
@@ -740,6 +766,8 @@ def extract_brief(agent_id: str, result) -> dict:
             "time_sensitivity": result.get("time_sensitivity", ""),
             "rationale": result.get("rationale", ""),
             "skeptic_rebuttal": result.get("skeptic_rebuttal", ""),
+            "convergence_argument": result.get("convergence_argument", ""),
+            "debate_rebuttals": (result.get("debate_rebuttals") or [])[:5],
             "escalation_level": result.get("escalation_level", 0),
             "escalation_recommendation": result.get("escalation_recommendation", ""),
         }

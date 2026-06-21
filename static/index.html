@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>PostCare AI Monitor</title>
+<title>Nightingale</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -39,6 +39,39 @@
     50%      { box-shadow: 0 0 24px rgba(59,130,246,0.55); }
   }
 
+  /* Live monitor */
+  .live-dot { width:8px; height:8px; border-radius:50%; background:#ef4444; animation:blink-red 1s ease-in-out infinite; flex-shrink:0; }
+  @keyframes blink-red { 0%,100%{opacity:1} 50%{opacity:0.25} }
+  .tilt-active-pill { background:rgba(239,68,68,0.18); color:#f87171; border:1px solid rgba(239,68,68,0.4); animation:pulse-red 1.1s ease-in-out infinite; }
+  .tilt-idle-pill   { background:rgba(34,197,94,0.12); color:#4ade80; border:1px solid rgba(34,197,94,0.25); }
+  @keyframes pulse-red { 0%,100%{box-shadow:0 0 0 0 rgba(239,68,68,0.35)} 50%{box-shadow:0 0 0 5px rgba(239,68,68,0)} }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .vital-tile { background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:10px; padding:10px 14px; text-align:center; }
+  .vital-value { font-size:1.4rem; font-weight:800; line-height:1.1; }
+  .vital-label { font-size:0.65rem; font-weight:600; color:#4b5563; text-transform:uppercase; letter-spacing:0.07em; margin-top:2px; }
+  .vital-unit  { font-size:0.65rem; color:#374151; margin-left:2px; }
+
+  /* Research panel */
+  .research-progress-row { display:flex; align-items:center; gap:8px; font-size:0.73rem; }
+  .research-progress-row .src-label { font-weight:600; color:#a78bfa; min-width:110px; flex-shrink:0; }
+  .research-progress-row .src-status { color:#6b7280; }
+  .research-progress-row.done .src-status { color:#4ade80; }
+  .research-progress-row.error .src-status { color:#f87171; }
+  .complication-card { background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.07); border-radius:10px; padding:12px 14px; }
+  .evidence-card { background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.07); border-radius:10px; padding:12px 14px; }
+  .source-pill { font-size:0.7rem; px:8px; padding:3px 10px; border-radius:20px; }
+  .source-journal  { background:rgba(251,191,36,0.12); color:#fbbf24; border:1px solid rgba(251,191,36,0.25); }
+  .source-clinical { background:rgba(16,185,129,0.12); color:#34d399; border:1px solid rgba(16,185,129,0.25); }
+
+  /* Escalation levels */
+  .esc-0 { border-color:rgba(34,197,94,0.4);  background:rgba(34,197,94,0.07); }
+  .esc-1 { border-color:rgba(234,179,8,0.4);  background:rgba(234,179,8,0.07); }
+  .esc-2 { border-color:rgba(249,115,22,0.5); background:rgba(249,115,22,0.08); }
+  .esc-3 { border-color:rgba(239,68,68,0.55); background:rgba(239,68,68,0.1); animation:pulse-escalation 2s ease-in-out infinite; }
+  @keyframes pulse-escalation { 0%,100%{box-shadow:0 0 0 0 rgba(239,68,68,0.2)} 50%{box-shadow:0 0 0 8px rgba(239,68,68,0)} }
+  .esc-icon-0 { color:#4ade80; } .esc-icon-1 { color:#facc15; } .esc-icon-2 { color:#fb923c; } .esc-icon-3 { color:#f87171; }
+  .esc-label-0 { color:#4ade80; } .esc-label-1 { color:#facc15; } .esc-label-2 { color:#fb923c; } .esc-label-3 { color:#f87171; }
+
   /* Severity badges */
   .badge-low      { background:rgba(34,197,94,0.14);  color:#4ade80; border:1px solid rgba(34,197,94,0.28); }
   .badge-medium   { background:rgba(245,158,11,0.14); color:#fbbf24; border:1px solid rgba(245,158,11,0.28); }
@@ -57,12 +90,40 @@
   .sparkline-card { background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:10px; padding:11px 14px; }
 
   /* SBAR formatting */
-  .sbar-content strong { color:#93c5fd; font-weight:600; display:block; margin-top:0.9rem; font-size:0.72rem; letter-spacing:0.09em; text-transform:uppercase; }
-  .sbar-content p { line-height:1.75; color:#c8d0e0; }
-  .sbar-content ol { padding-left:1.25rem; }
-  .sbar-content li { line-height:1.7; color:#c8d0e0; }
-  .sbar-content hr { border-color:rgba(255,255,255,0.08); margin:1rem 0; }
+  .sbar-section-hdr {
+    display:flex; align-items:center; gap:8px;
+    font-size:0.67rem; font-weight:700; letter-spacing:0.11em; text-transform:uppercase;
+    color:#93c5fd; margin-top:1.2rem; margin-bottom:0.45rem; padding-bottom:0.3rem;
+    border-bottom:1px solid rgba(147,197,253,0.15);
+  }
+  .sbar-section-hdr::before { content:''; display:inline-block; width:3px; height:12px; border-radius:2px; background:#93c5fd; opacity:0.7; }
+  .sbar-content p { line-height:1.8; color:#c8d0e0; margin:0 0 0.5rem 0; }
+  .sbar-list { padding-left:0; margin:0.25rem 0 0.5rem 0; list-style:none; counter-reset:sbar-counter; }
+  .sbar-list li {
+    counter-increment:sbar-counter; position:relative;
+    padding:0.55rem 0.75rem 0.55rem 2.6rem; margin-bottom:0.4rem;
+    background:rgba(255,255,255,0.025); border-radius:8px; border:1px solid rgba(255,255,255,0.05);
+    line-height:1.65; color:#c8d0e0; font-size:0.84rem;
+  }
+  .sbar-list li::before {
+    content:counter(sbar-counter);
+    position:absolute; left:0.75rem; top:50%; transform:translateY(-50%);
+    width:18px; height:18px; border-radius:50%; background:rgba(147,197,253,0.18);
+    color:#93c5fd; font-size:0.68rem; font-weight:700;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .sbar-list li strong { color:#dbeafe; font-weight:600; }
+  .sbar-content hr { border:none; border-top:1px solid rgba(255,255,255,0.07); margin:1rem 0; }
   .sbar-content em { color:#6b7280; font-style:italic; font-size:0.78rem; }
+  .sbar-footnote { color:#4b5563 !important; font-size:0.75rem !important; margin-top:0.5rem !important; }
+
+  /* Mode toggle (Clinical / Patient-Friendly) */
+  .mode-toggle-group { display:flex; gap:3px; background:rgba(255,255,255,0.04); border-radius:8px; padding:3px; border:1px solid rgba(255,255,255,0.07); }
+  .mode-btn { padding:3px 10px; border-radius:6px; font-size:0.7rem; font-weight:600; cursor:pointer; transition:all 0.15s; color:#6b7280; background:transparent; border:none; white-space:nowrap; }
+  .mode-btn.active { background:rgba(59,130,246,0.2); color:#93c5fd; border:1px solid rgba(59,130,246,0.35); }
+  .mode-btn:hover:not(.active) { color:#94a3b8; background:rgba(255,255,255,0.04); }
+  .simplify-loading { display:inline-flex; align-items:center; gap:6px; font-size:0.72rem; color:#fbbf24; }
+  .simplify-loading::before { content:''; width:10px; height:10px; border:2px solid #fbbf24; border-top-color:transparent; border-radius:50%; animation:spin 0.7s linear infinite; display:inline-block; }
 
   /* Form inputs in new-patient modal */
   .np-input {
@@ -89,6 +150,38 @@
     50% { box-shadow:0 0 0 6px rgba(239,68,68,0); }
   }
   .tts-btn { transition:all 0.18s; background:rgba(16,185,129,0.12); color:#34d399; border:1px solid rgba(16,185,129,0.25); }
+
+  /* Collapsible research sections */
+  details.res-section > summary {
+    list-style:none; cursor:pointer; display:flex; align-items:center; justify-content:space-between;
+    padding:7px 0; user-select:none;
+  }
+  details.res-section > summary::-webkit-details-marker { display:none; }
+  details.res-section > summary .chev {
+    font-size:0.7rem; color:#4b5563; transition:transform 0.2s; flex-shrink:0;
+  }
+  details.res-section[open] > summary .chev { transform:rotate(90deg); }
+  details.res-section > summary:hover .chev { color:#94a3b8; }
+
+  /* Fetch.ai badge */
+  .fetch-badge {
+    display:inline-flex; align-items:center; gap:3px;
+    font-size:0.55rem; font-weight:600; letter-spacing:0.04em; text-transform:uppercase;
+    padding:1px 5px; border-radius:20px;
+    background:rgba(14,165,233,0.08); color:#64b5d6; border:1px solid rgba(14,165,233,0.18);
+  }
+  .fetch-badge .dot { width:3px; height:3px; border-radius:50%; background:#64b5d6; animation:blink-red 1.4s ease-in-out infinite; }
+
+  /* Tilt unstable state */
+  .tilt-unstable-pill { background:rgba(239,68,68,0.18); color:#f87171; border:1px solid rgba(239,68,68,0.4); animation:pulse-red 1.1s ease-in-out infinite; }
+  /* Light sensor states */
+  .light-dark-pill  { background:rgba(99,102,241,0.12); color:#818cf8; border:1px solid rgba(99,102,241,0.25); }
+  .light-on-pill    { background:rgba(251,191,36,0.18); color:#fbbf24; border:1px solid rgba(251,191,36,0.4); animation:pulse-blue 1.2s ease-in-out infinite; }
+
+  /* Arduino indicator */
+  .arduino-badge { font-size:0.62rem; font-weight:600; padding:2px 7px; border-radius:12px;
+    background:rgba(52,211,153,0.12); color:#34d399; border:1px solid rgba(52,211,153,0.25); }
+  .arduino-badge.sim { background:rgba(107,114,128,0.12); color:#6b7280; border-color:rgba(107,114,128,0.2); }
   .tts-btn:hover { background:rgba(16,185,129,0.22); }
   .tts-btn:disabled { opacity:0.4; cursor:not-allowed; }
 
@@ -119,14 +212,15 @@
   <div class="flex items-center gap-3">
     <div class="w-7 h-7 rounded-lg flex items-center justify-center text-white text-sm font-bold"
          style="background:linear-gradient(135deg,#3b82f6,#6366f1)">+</div>
-    <span class="font-semibold text-white text-sm">PostCare AI Monitor</span>
+    <span class="font-semibold text-white text-sm">Nightingale</span>
     <span class="text-xs px-2 py-0.5 rounded-full border text-blue-400 border-blue-500/30 bg-blue-500/10">Multi-Agent</span>
   </div>
   <div class="flex items-center gap-4">
     <button onclick="openLogsModal()" class="text-xs text-slate-400 hover:text-slate-200 transition-colors">View Logs</button>
-    <span class="mono text-xs text-slate-500">claude-opus-4-8</span>
+    <span class="mono text-slate-700" style="font-size:0.6rem">claude-opus-4-8</span>
     <!-- Deepgram indicator -->
     <span id="dg-badge" class="hidden text-xs px-2 py-0.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 font-medium">DG</span>
+    <span id="bb-badge" class="hidden text-xs px-2 py-0.5 rounded-full border border-violet-500/30 bg-violet-500/10 text-violet-400 font-medium">BB</span>
     <div class="flex items-center gap-1.5">
       <span id="status-dot" class="w-2 h-2 rounded-full bg-slate-600"></span>
       <span id="status-text" class="text-xs text-slate-500">Loading…</span>
@@ -181,16 +275,26 @@
               <span id="pt-custom-badge" class="hidden text-xs px-2 py-0.5 rounded-full border border-indigo-500/30 bg-indigo-500/10 text-indigo-400">Custom</span>
             </div>
             <p id="pt-dx" class="text-sm text-slate-400 mb-2"></p>
-            <div class="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-slate-500">
+            <div class="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-slate-500 mb-1">
               <span id="pt-age"></span>
               <span id="pt-dc"></span>
-              <span id="pt-meds" class="text-slate-600 max-w-sm truncate"></span>
             </div>
+            <p id="pt-meds" class="text-xs text-slate-600 leading-relaxed"></p>
           </div>
           <div class="flex items-center gap-2 flex-shrink-0">
             <button id="delete-btn" onclick="deleteCurrentPatient()"
               class="hidden px-3 py-2 rounded-xl text-sm font-medium text-red-400 border border-red-500/25 bg-red-500/8 hover:bg-red-500/15 transition-all">
               Delete
+            </button>
+            <button id="research-btn" onclick="openResearch()"
+              class="flex items-center gap-1.5 px-4 py-2.5 rounded-xl font-semibold text-sm transition-all"
+              style="background:rgba(139,92,246,0.12);color:#a78bfa;border:1px solid rgba(139,92,246,0.3)">
+              🔬 Research
+            </button>
+            <button id="live-btn" onclick="toggleLiveMonitor()"
+              class="flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-sm transition-all"
+              style="background:rgba(239,68,68,0.12);color:#f87171;border:1px solid rgba(239,68,68,0.3)">
+              <span class="live-dot"></span> Live
             </button>
             <button id="run-btn" onclick="runAnalysis()"
               class="px-5 py-2.5 rounded-xl font-semibold text-sm text-white transition-all"
@@ -207,48 +311,283 @@
         <div id="sparkline-grid" class="grid grid-cols-2 md:grid-cols-4 gap-2.5"></div>
       </div>
 
-      <!-- Self-report + TTS -->
+      <!-- Live Monitor Panel -->
+      <div id="live-monitor" class="hidden fade-in">
+        <div class="glass rounded-2xl overflow-hidden border border-red-500/20">
+          <!-- Header -->
+          <div class="flex items-center justify-between px-5 py-3 border-b border-white/5" style="background:rgba(239,68,68,0.05)">
+            <div class="flex items-center gap-2.5">
+              <span class="live-dot"></span>
+              <span class="text-sm font-semibold text-white">Live Patient Monitor</span>
+              <span class="mono text-xs text-slate-500" id="live-timestamp">--:--:--</span>
+              <span id="arduino-badge" class="arduino-badge sim">🔌 Arduino</span>
+            </div>
+            <div class="flex items-center gap-3">
+              <span class="text-xs text-slate-500">NEWS2 Live:</span>
+              <span id="live-news2" class="mono text-sm font-bold text-slate-300">–</span>
+              <button onclick="toggleLiveMonitor()" class="text-slate-600 hover:text-slate-300 transition-colors text-lg leading-none ml-2">×</button>
+            </div>
+          </div>
+
+          <div class="p-5 space-y-4">
+            <!-- BPM rolling chart -->
+            <div>
+              <div class="flex items-center justify-between mb-2">
+                <span class="text-xs font-semibold text-slate-500 uppercase tracking-widest">Heart Rate (BPM) — 60s Rolling</span>
+                <span id="live-hr-value" class="text-2xl font-bold text-white mono">–</span>
+              </div>
+              <canvas id="live-hr-canvas" width="800" height="90"
+                style="width:100%;height:90px;border-radius:10px;background:rgba(0,0,0,0.3);display:block"></canvas>
+              <div class="flex justify-between mt-1 text-xs text-slate-700 mono">
+                <span>60s ago</span><span>30s ago</span><span>now</span>
+              </div>
+            </div>
+
+            <!-- Vital tiles row -->
+            <div class="grid grid-cols-3 md:grid-cols-6 gap-2">
+              <div class="vital-tile">
+                <div class="vital-value text-blue-400" id="lv-spo2">–</div>
+                <div class="vital-label">SpO₂ <span class="vital-unit">%</span></div>
+              </div>
+              <div class="vital-tile">
+                <div class="vital-value text-violet-400" id="lv-rr">–</div>
+                <div class="vital-label">Resp Rate <span class="vital-unit">/min</span></div>
+              </div>
+              <div class="vital-tile">
+                <div class="vital-value text-pink-400" id="lv-temp">–</div>
+                <div class="vital-label">Temp <span class="vital-unit">°C</span></div>
+              </div>
+              <div class="vital-tile">
+                <div class="vital-value text-cyan-400" id="lv-sbp">–</div>
+                <div class="vital-label">Sys BP <span class="vital-unit">mmHg</span></div>
+              </div>
+              <div class="vital-tile">
+                <div class="vital-value text-slate-400" id="lv-dbp">–</div>
+                <div class="vital-label">Dia BP <span class="vital-unit">mmHg</span></div>
+              </div>
+              <!-- Tilt sensor tile -->
+              <div class="vital-tile flex flex-col items-center justify-center gap-1.5">
+                <div id="tilt-pill" class="tilt-idle-pill text-xs font-bold px-2.5 py-1 rounded-full transition-all">● Stable</div>
+                <div class="vital-label">Tilt / Motion</div>
+                <div class="text-xs text-slate-500"><span id="tilt-count">0</span> events</div>
+              </div>
+            </div>
+
+            <!-- Light sensor row -->
+            <div class="grid grid-cols-2 gap-2">
+              <!-- Light status tile -->
+              <div class="vital-tile flex flex-col gap-1.5">
+                <div class="flex items-center justify-between">
+                  <span class="vital-label">💡 Room Light</span>
+                  <div id="light-pill" class="light-dark-pill text-xs font-bold px-2 py-0.5 rounded-full transition-all">🌙 Dark</div>
+                </div>
+                <div class="flex items-end gap-3 mt-0.5">
+                  <div>
+                    <div class="vital-value text-yellow-400" id="lv-light">–</div>
+                    <div class="vital-label">Sensor raw</div>
+                  </div>
+                  <div class="ml-auto text-right">
+                    <div class="text-lg font-bold text-yellow-400" id="light-wake-count">0</div>
+                    <div class="vital-label">Wake events</div>
+                  </div>
+                </div>
+              </div>
+              <!-- Light bar indicator -->
+              <div class="vital-tile flex flex-col justify-between gap-1">
+                <span class="vital-label">Light intensity</span>
+                <div class="relative h-3 rounded-full overflow-hidden" style="background:rgba(255,255,255,0.05)">
+                  <div id="light-bar" class="h-full rounded-full transition-all duration-500" style="width:0%;background:linear-gradient(90deg,#312e81,#fbbf24)"></div>
+                </div>
+                <div class="flex justify-between text-xs text-slate-700">
+                  <span>Dark (sleep)</span><span>Light (awake)</span>
+                </div>
+                <div class="text-xs text-slate-600 mt-1">Threshold: 200 · <span id="light-status-text">Monitoring…</span></div>
+              </div>
+            </div>
+
+            <!-- Sleep activity histogram -->
+            <div>
+              <p class="text-xs font-semibold text-slate-600 uppercase tracking-widest mb-1.5">Sleep Activity (last 60s)</p>
+              <canvas id="sleep-histogram" height="55"
+                style="width:100%;height:55px;border-radius:8px;background:rgba(0,0,0,0.2);display:block"></canvas>
+              <div class="flex justify-between mt-1 text-xs text-slate-700">
+                <span>60s ago</span><span>30s ago</span><span>now</span>
+              </div>
+            </div>
+
+            <!-- Event logs side by side -->
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <p class="text-xs font-semibold text-slate-600 uppercase tracking-widest mb-1.5">Motion Events</p>
+                <div id="tilt-log" class="space-y-0.5 max-h-20 overflow-y-auto">
+                  <p class="text-xs text-slate-700 italic">No events yet.</p>
+                </div>
+              </div>
+              <div>
+                <p class="text-xs font-semibold text-slate-600 uppercase tracking-widest mb-1.5">Light-On Events</p>
+                <div id="light-log" class="space-y-0.5 max-h-20 overflow-y-auto">
+                  <p class="text-xs text-slate-700 italic">No events yet.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Research Panel -->
+      <div id="research-panel" class="hidden fade-in">
+        <div class="glass rounded-2xl overflow-hidden border border-violet-500/20">
+          <div class="flex flex-wrap items-center justify-between gap-2 px-5 py-3 border-b border-white/5" style="background:rgba(139,92,246,0.05)">
+            <div class="flex items-center gap-2.5">
+              <span class="text-base">🔬</span>
+              <span class="text-sm font-semibold text-white">Medical Research</span>
+              <span class="text-xs text-slate-500" id="research-subtitle">PubMed · NIH · Cleveland Clinic</span>
+            </div>
+            <div class="flex items-center gap-2 flex-wrap">
+              <div class="mode-toggle-group" id="res-mode-group">
+                <button class="mode-btn active" id="res-mode-clinical" onclick="setResearchMode('clinical')">🔬 Clinical</button>
+                <button class="mode-btn" id="res-mode-simple" onclick="setResearchMode('simple')">👵 Patient-Friendly</button>
+              </div>
+              <button id="research-rerun-btn" onclick="runResearch()" class="hidden text-xs text-violet-400 hover:text-violet-300 transition-colors">↺ Re-fetch</button>
+              <button onclick="closeResearch()" class="text-slate-600 hover:text-slate-300 transition-colors text-lg leading-none">×</button>
+            </div>
+          </div>
+          <div id="res-simplify-status" class="hidden px-5 py-2"></div>
+
+          <!-- Progress stream -->
+          <div id="research-progress" class="px-5 py-4 space-y-1.5">
+            <p class="text-xs text-slate-500 text-center py-4">Click <span class="text-violet-400 font-medium">🔬 Research</span> to fetch literature tailored to this patient's diagnosis.</p>
+          </div>
+
+          <!-- Results (hidden until complete) -->
+          <div id="research-results" class="hidden px-5 pb-5 space-y-5">
+
+            <!-- Diagnosis context -->
+            <div class="rounded-lg p-3 border border-violet-500/15" style="background:rgba(139,92,246,0.06)">
+              <p class="text-xs font-semibold text-violet-400 uppercase tracking-widest mb-1.5">Diagnosis Overview</p>
+              <p id="res-context" class="text-xs text-slate-300 leading-relaxed"></p>
+              <p id="res-surgery-reason" class="text-xs text-slate-400 leading-relaxed mt-1.5 italic"></p>
+            </div>
+
+            <!-- Recovery timeline (collapsible) -->
+            <details class="res-section">
+              <summary>
+                <span class="text-xs font-semibold text-slate-500 uppercase tracking-widest">Evidence-Based Recovery Timeline</span>
+                <span class="chev">▶</span>
+              </summary>
+              <div class="grid grid-cols-3 gap-2 mt-2" id="res-timeline"></div>
+            </details>
+
+            <!-- Complications (collapsible) -->
+            <details class="res-section">
+              <summary>
+                <span class="text-xs font-semibold text-slate-500 uppercase tracking-widest">Common Post-Discharge Complications</span>
+                <span class="chev">▶</span>
+              </summary>
+              <div id="res-complications" class="space-y-1.5 mt-2"></div>
+            </details>
+
+            <!-- Red flags (collapsible) -->
+            <details class="res-section">
+              <summary>
+                <span class="text-xs font-semibold text-slate-500 uppercase tracking-widest">Potential Red Flags</span>
+                <span class="chev">▶</span>
+              </summary>
+              <ul id="res-redflags" class="space-y-1 mt-1.5 pl-1"></ul>
+            </details>
+
+            <!-- Monitoring parameters (collapsible) -->
+            <details class="res-section">
+              <summary>
+                <span class="text-xs font-semibold text-slate-500 uppercase tracking-widest">Monitoring Parameters</span>
+                <span class="chev">▶</span>
+              </summary>
+              <div id="res-params" class="space-y-1 mt-2"></div>
+            </details>
+
+            <!-- Evidence highlights (collapsible) -->
+            <details class="res-section">
+              <summary>
+                <span class="text-xs font-semibold text-slate-500 uppercase tracking-widest">Evidence Highlights</span>
+                <span class="chev">▶</span>
+              </summary>
+              <div id="res-evidence" class="space-y-1.5 mt-2"></div>
+            </details>
+
+            <!-- Tailored narrative -->
+            <div class="rounded-lg p-3 border border-blue-500/15" style="background:rgba(59,130,246,0.05)">
+              <div class="flex items-center justify-between mb-1.5">
+                <p class="text-xs font-semibold text-blue-400 uppercase tracking-widest">Patient-Specific Risk Narrative</p>
+                <button onclick="playResearchNarrative()" class="tts-btn flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-medium">🔊</button>
+              </div>
+              <div id="res-narrative" class="text-xs text-slate-300 leading-relaxed space-y-1.5"></div>
+            </div>
+
+            <!-- Sources -->
+            <div>
+              <p class="text-xs font-semibold text-slate-700 uppercase tracking-widest mb-1.5">Sources</p>
+              <div id="res-sources" class="flex flex-wrap gap-1.5"></div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+      <!-- Self-report + TTS + STT -->
       <div class="glass rounded-xl p-4 fade-in">
         <div class="flex items-center justify-between mb-2">
           <p class="text-xs font-semibold text-slate-500 uppercase tracking-widest">Today's Patient Check-In</p>
-          <button id="tts-report-btn" onclick="playCurrentReport()"
-            class="tts-btn flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium">
-            🔊 Play
-          </button>
+          <div class="flex items-center gap-1.5">
+            <button id="stt-report-btn" onclick="recordSelfReport()"
+              class="rec-btn idle flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium">
+              🎤 Record
+            </button>
+            <button id="tts-report-btn" onclick="playCurrentReport()"
+              class="tts-btn flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium">
+              🔊 Play
+            </button>
+          </div>
         </div>
         <p id="pt-report" class="text-sm text-slate-300 italic leading-relaxed"></p>
+        <p id="stt-report-status" class="hidden text-xs text-amber-400 mt-1"></p>
       </div>
 
       <!-- Pipeline -->
       <div id="pipeline-section" class="hidden">
-        <div class="flex items-center justify-between mb-3">
-          <p class="text-xs font-semibold text-slate-500 uppercase tracking-widest">Analysis Pipeline</p>
+        <div class="flex items-center justify-between mb-2">
+          <div class="flex items-center gap-2">
+            <p class="text-xs font-semibold text-slate-500 uppercase tracking-widest">Analysis Pipeline</p>
+            <span class="fetch-badge"><span class="dot"></span>Fetch.ai uAgents</span>
+          </div>
           <div class="flex items-center gap-2">
             <span id="pipeline-progress-text" class="text-xs text-slate-500">0 / 7 agents</span>
-            <div class="w-28 h-1.5 rounded-full bg-white/5 overflow-hidden">
+            <div class="w-24 h-1 rounded-full bg-white/5 overflow-hidden">
               <div id="pipeline-progress-bar" class="h-full rounded-full progress-fill bg-blue-500" style="width:0%"></div>
             </div>
           </div>
         </div>
 
-        <!-- Row 1 -->
-        <div class="flex gap-2 mb-1.5">
-          <div id="card-signal"      class="agent-card glass rounded-xl p-3 flex-1 state-idle"></div>
-          <div class="pipe-arrow">→</div>
-          <div id="card-trend"       class="agent-card glass rounded-xl p-3 flex-1 state-idle"></div>
-          <div class="pipe-arrow">→</div>
-          <div id="card-self_report" class="agent-card glass rounded-xl p-3 flex-1 state-idle"></div>
-          <div class="pipe-arrow">→</div>
-          <div id="card-knowledge"   class="agent-card glass rounded-xl p-3 flex-1 state-idle"></div>
+        <!-- Parallel tier label -->
+        <p class="text-xs text-slate-700 uppercase tracking-widest mb-1.5 ml-0.5">⚡ Parallel</p>
+        <!-- 3 parallel agents side-by-side, smaller -->
+        <div class="grid grid-cols-3 gap-1.5 mb-1.5">
+          <div id="card-signal"      class="agent-card glass rounded-lg p-2 state-idle"></div>
+          <div id="card-trend"       class="agent-card glass rounded-lg p-2 state-idle"></div>
+          <div id="card-self_report" class="agent-card glass rounded-lg p-2 state-idle"></div>
         </div>
-        <div class="flex justify-end mb-1.5 pr-3"><span class="text-slate-700 text-sm">↓</span></div>
-        <!-- Row 2 -->
-        <div class="flex gap-2 justify-end mb-5">
-          <div id="card-skeptic"    class="agent-card glass rounded-xl p-3 flex-1 state-idle"></div>
-          <div class="pipe-arrow">→</div>
-          <div id="card-reconciler" class="agent-card glass rounded-xl p-3 flex-1 state-idle"></div>
-          <div class="pipe-arrow">→</div>
-          <div id="card-brief"      class="agent-card glass rounded-xl p-3 flex-1 state-idle"></div>
+        <div class="flex items-center gap-1 mb-1.5 ml-1">
+          <div class="h-px flex-1 bg-white/5"></div>
+          <span class="text-slate-700 text-xs">↓ all findings pass to RAG</span>
+          <div class="h-px flex-1 bg-white/5"></div>
+        </div>
+
+        <!-- Sequential tier: RAG → Skeptic → Judge → Brief (stacked) -->
+        <p class="text-xs text-slate-700 uppercase tracking-widest mb-1.5 ml-0.5">🔗 Sequential</p>
+        <div class="space-y-1.5 mb-4">
+          <div id="card-knowledge"   class="agent-card glass rounded-lg p-2 state-idle"></div>
+          <div id="card-skeptic"     class="agent-card glass rounded-lg p-2 state-idle"></div>
+          <div id="card-reconciler"  class="agent-card glass rounded-lg p-2 state-idle"></div>
+          <div id="card-brief"       class="agent-card glass rounded-lg p-2 state-idle"></div>
         </div>
 
         <!-- Risk gauge -->
@@ -268,21 +607,40 @@
                 <p id="risk-action-text" class="font-semibold"></p>
                 <p id="risk-timing-text" class="text-xs mt-0.5 text-slate-400"></p>
               </div>
+              <!-- Escalation recommendation -->
+              <div id="escalation-box" class="hidden rounded-xl p-4 border mt-3">
+                <div class="flex items-center gap-2.5 mb-2">
+                  <span id="esc-icon" class="text-xl"></span>
+                  <div>
+                    <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider leading-none">Escalation Protocol</p>
+                    <p id="esc-label" class="text-sm font-bold mt-0.5"></p>
+                  </div>
+                  <span id="esc-level-badge" class="ml-auto text-xs font-bold px-2 py-0.5 rounded-full border"></span>
+                </div>
+                <p id="esc-text" class="text-sm leading-relaxed text-slate-300"></p>
+                <p class="text-xs text-slate-600 mt-2 italic">⚠ This system identifies what would be clinically appropriate — it does not take action. All decisions remain with the care team.</p>
+              </div>
             </div>
           </div>
         </div>
 
         <!-- SBAR -->
         <div id="sbar-section" class="hidden fade-in mt-5">
-          <div class="flex items-center justify-between mb-2.5">
+          <div class="flex flex-wrap items-center justify-between gap-2 mb-2.5">
             <p class="text-xs font-semibold text-slate-500 uppercase tracking-widest">SBAR Clinical Brief</p>
-            <div class="flex gap-2">
+            <div class="flex items-center gap-2 flex-wrap">
+              <!-- Mode toggle -->
+              <div class="mode-toggle-group" id="sbar-mode-group">
+                <button class="mode-btn active" id="sbar-mode-clinical" onclick="setSbarMode('clinical')">🩺 Clinical</button>
+                <button class="mode-btn" id="sbar-mode-simple" onclick="setSbarMode('simple')">👵 Patient-Friendly</button>
+              </div>
               <button onclick="playSbar()" class="tts-btn text-xs px-2.5 py-1 rounded-lg font-medium">🔊 Play</button>
               <button onclick="copySbar()" class="text-xs text-blue-400 hover:text-blue-300 transition-colors">Copy</button>
             </div>
           </div>
+          <div id="sbar-simplify-status" class="hidden mb-2"></div>
           <div class="glass rounded-2xl p-6">
-            <div id="sbar-content" class="sbar-content text-sm space-y-1 leading-relaxed"></div>
+            <div id="sbar-content" class="sbar-content text-sm leading-relaxed"></div>
           </div>
         </div>
       </div><!-- /pipeline-section -->
@@ -483,6 +841,21 @@
 
 <!-- ══════════════════════════════════════════════════════════════════════════ -->
 <script>
+// ─── Live monitor state ───────────────────────────────────────────────────────
+let liveES = null;           // EventSource for live stream
+let liveActive = false;
+const HR_WINDOW = 60;
+const hrBuffer  = [];
+let tiltEvents  = [];
+let lightEvents = [];        // timestamps of light-on wake events
+// histogram buffers: one sample per second for 60s
+const histTilt  = new Array(HR_WINDOW).fill(0);   // 1 = tilt active
+const histLight = new Array(HR_WINDOW).fill(0);   // 0=dark,1=light-on
+let liveCanvas  = null;
+let liveCtx     = null;
+let sleepHistCanvas = null;
+let sleepHistCtx    = null;
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 const AGENT_META = {
   signal:      { icon:'⚡', label:'Signal',          desc:'Acute anomaly detection' },
@@ -528,6 +901,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
   deepgramEnabled = !!st.deepgram_key_set;
   if (deepgramEnabled) document.getElementById('dg-badge').classList.remove('hidden');
+  if (st.browserbase_key_set) document.getElementById('bb-badge').classList.remove('hidden');
 
   document.getElementById('dg-status-note').textContent =
     deepgramEnabled ? '🟢 Deepgram ready' : '⚠ No DEEPGRAM_API_KEY — typing only';
@@ -588,6 +962,18 @@ async function selectPatient(pid) {
   document.getElementById('pipeline-section').classList.add('hidden');
   document.getElementById('risk-section').classList.add('hidden');
   document.getElementById('sbar-section').classList.add('hidden');
+  document.getElementById('escalation-box').classList.add('hidden');
+  // Stop live monitor when switching patients
+  if (liveActive) { stopLiveMonitor(); document.getElementById('live-monitor').classList.add('hidden'); }
+  // Close research panel and reset caches on patient switch
+  document.getElementById('research-panel').classList.add('hidden');
+  researchMode = 'clinical'; researchSimpleCache = '';
+  document.getElementById('res-mode-clinical').classList.add('active');
+  document.getElementById('res-mode-simple').classList.remove('active');
+  document.getElementById('res-simplify-status').classList.add('hidden');
+  // Reset SBAR mode caches
+  sbarMode = 'clinical'; currentSbarSimple = '';
+  document.getElementById('sbar-simplify-status').classList.add('hidden');
 
   // Fill header
   document.getElementById('pt-name').textContent = selectedPatient.name;
@@ -675,10 +1061,44 @@ function buildSparkline(data, w, h, color) {
 }
 
 // ─── TTS ──────────────────────────────────────────────────────────────────────
+let _ttsAudio = null;      // currently playing Audio object
+let _ttsBtn   = null;      // button that triggered current playback
+let _ttsBlobUrl = null;
+
+function _ttsStop() {
+  if (_ttsAudio) {
+    _ttsAudio.pause();
+    _ttsAudio.currentTime = 0;
+    _ttsAudio = null;
+  }
+  if (_ttsBlobUrl) { URL.revokeObjectURL(_ttsBlobUrl); _ttsBlobUrl = null; }
+  if (_ttsBtn) {
+    _ttsBtn.textContent = '🔊 Play';
+    _ttsBtn.disabled = false;
+    _ttsBtn = null;
+  }
+  // Reset any tts-btn that's showing Stop
+  document.querySelectorAll('.tts-btn').forEach(b => {
+    if (b.textContent.includes('Stop') || b.textContent.includes('Loading')) {
+      b.textContent = '🔊 Play';
+      b.disabled = false;
+    }
+  });
+}
+
 async function playText(text, btnEl) {
   if (!text) return;
   if (!deepgramEnabled) { alert('DEEPGRAM_API_KEY not set — add it to your .env file'); return; }
-  if (btnEl) { btnEl.disabled = true; btnEl.textContent = '⏳ Loading…'; }
+
+  // If already playing: stop and return (toggle behaviour)
+  if (_ttsAudio && !_ttsAudio.paused) {
+    _ttsStop();
+    return;
+  }
+  // Stop any previous audio before starting new one
+  _ttsStop();
+
+  if (btnEl) { btnEl.disabled = true; btnEl.textContent = '⏳ Loading…'; _ttsBtn = btnEl; }
   try {
     const resp = await fetch('/api/tts', {
       method:'POST', headers:{'Content-Type':'application/json'},
@@ -686,12 +1106,16 @@ async function playText(text, btnEl) {
     });
     if (!resp.ok) { const e = await resp.json().catch(()=>({message:'TTS error'})); throw new Error(e.detail || e.message); }
     const blob = await resp.blob();
-    const url = URL.createObjectURL(blob);
-    const audio = new Audio(url);
-    audio.onended = () => URL.revokeObjectURL(url);
-    audio.play();
-  } catch(e) { alert(`TTS error: ${e.message}`); }
-  finally { if (btnEl) { btnEl.disabled = false; btnEl.textContent = '🔊 Play'; } }
+    _ttsBlobUrl = URL.createObjectURL(blob);
+    _ttsAudio = new Audio(_ttsBlobUrl);
+    if (btnEl) { btnEl.disabled = false; btnEl.textContent = '⏹ Stop'; }
+    _ttsAudio.onended = () => _ttsStop();
+    _ttsAudio.onerror = () => _ttsStop();
+    _ttsAudio.play();
+  } catch(e) {
+    _ttsStop();
+    alert(`TTS error: ${e.message}`);
+  }
 }
 
 function playCurrentReport() {
@@ -700,21 +1124,201 @@ function playCurrentReport() {
 }
 
 function playSbar() {
-  playText(currentSbar, null);
+  const active = sbarMode === 'simple' && currentSbarSimple ? currentSbarSimple : currentSbar;
+  const btn = document.querySelector('#sbar-section .tts-btn');
+  playText(active, btn || null);
+}
+
+function playResearchNarrative() {
+  const narr = document.getElementById('res-narrative').innerText || '';
+  const btn = document.querySelector('#res-narrative').closest('div')?.querySelector('.tts-btn');
+  playText(narr, btn || null);
+}
+
+// ─── Research mode (clinical ↔ patient-friendly) ──────────────────────────────
+let researchMode = 'clinical';
+let researchSimpleCache = '';   // cached simplified research text
+
+function setResearchMode(mode) {
+  if (mode === researchMode) return;
+  researchMode = mode;
+  document.getElementById('res-mode-clinical').classList.toggle('active', mode === 'clinical');
+  document.getElementById('res-mode-simple').classList.toggle('active', mode === 'simple');
+
+  const resultsEl = document.getElementById('research-results');
+  const statusEl  = document.getElementById('res-simplify-status');
+
+  if (mode === 'clinical') {
+    statusEl.classList.add('hidden');
+    // Un-hide all research cards (showSimpleResearch hides them)
+    Array.from(resultsEl.children).forEach(el => {
+      el.style.display = el.id === 'simple-research-card' ? 'none' : '';
+    });
+    if (selectedPatient && selectedPatient._researchData) {
+      resultsEl.classList.remove('hidden');
+      renderResearch(selectedPatient._researchData);
+    }
+    return;
+  }
+
+  // Patient-Friendly mode — show simplified plain-text overlay
+  if (researchSimpleCache) {
+    showSimpleResearch(researchSimpleCache);
+    return;
+  }
+  if (!selectedPatient || !selectedPatient._researchData) return;
+
+  // Build a compact text version of the research to simplify
+  const r = selectedPatient._researchData;
+  const toSimplify = [
+    `Diagnosis: ${r.diagnosis || ''}\n${r.diagnosis_context || ''}`,
+    `Recovery timeline:\nWeek 1: ${(r.recovery_timeline || {}).week_1 || ''}\nWeek 2: ${(r.recovery_timeline || {}).week_2 || ''}\nMonth 1: ${(r.recovery_timeline || {}).month_1 || ''}`,
+    `Common complications:\n${(r.common_complications || []).map(c => `- ${c.name}: ${(c.warning_signs||[]).join(', ')}`).join('\n')}`,
+    `Warning signs:\n${(r.red_flags || []).map(f => `- ${f}`).join('\n')}`,
+    `What the research says:\n${(r.evidence_highlights || []).map(e => `[${e.source}]: ${e.key_finding}`).join('\n')}`,
+    `Risk summary:\n${r.tailored_risk_narrative || ''}`,
+  ].join('\n\n');
+
+  statusEl.classList.remove('hidden');
+  statusEl.innerHTML = '<span class="simplify-loading px-5">Generating patient-friendly version…</span>';
+
+  fetch('/api/simplify', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({text: toSimplify, type: 'research'}),
+  })
+    .then(r => r.json())
+    .then(d => {
+      researchSimpleCache = d.simplified || '';
+      statusEl.classList.add('hidden');
+      showSimpleResearch(researchSimpleCache);
+    })
+    .catch(() => {
+      statusEl.innerHTML = '<span class="text-xs text-red-400 px-5">Could not simplify — showing clinical view.</span>';
+      researchMode = 'clinical';
+      document.getElementById('res-mode-clinical').classList.add('active');
+      document.getElementById('res-mode-simple').classList.remove('active');
+    });
+}
+
+function showSimpleResearch(text) {
+  const resultsEl = document.getElementById('research-results');
+  resultsEl.classList.remove('hidden');
+  // Hide all clinical sections, show only the simple card
+  Array.from(resultsEl.children).forEach(el => {
+    el.style.display = el.id === 'simple-research-card' ? '' : 'none';
+  });
+  const existing = resultsEl.querySelector('#simple-research-card');
+  const rendered = formatSbar(text);   // handles # headers, ## sections, - bullets, **bold**
+  if (existing) {
+    existing.style.display = '';
+    existing.querySelector('.simple-text').innerHTML = rendered;
+    return;
+  }
+  const card = document.createElement('div');
+  card.id = 'simple-research-card';
+  card.className = 'rounded-xl p-5 border border-blue-500/15 fade-in';
+  card.style.background = 'rgba(59,130,246,0.05)';
+  card.innerHTML = `
+    <div class="flex items-center justify-between mb-3">
+      <p class="text-xs font-semibold text-blue-400 uppercase tracking-widest">👵 Patient-Friendly Guide</p>
+      <button onclick="playText(document.querySelector('#simple-research-card .simple-text').innerText, null)"
+        class="tts-btn flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium">🔊 Play</button>
+    </div>
+    <div class="simple-text sbar-content text-sm leading-relaxed">${rendered}</div>`;
+  resultsEl.appendChild(card);
+}
+
+// ─── Self-report voice recording (main patient view) ─────────────────────────
+let selfReportRecorder = null;
+let selfReportChunks = [];
+
+async function recordSelfReport() {
+  const btn = document.getElementById('stt-report-btn');
+  const status = document.getElementById('stt-report-status');
+
+  if (selfReportRecorder && selfReportRecorder.state === 'recording') {
+    // Stop recording
+    selfReportRecorder.stop();
+    btn.className = 'rec-btn transcribing flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium';
+    btn.textContent = '⏳ Transcribing…';
+    btn.disabled = true;
+    return;
+  }
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const mimeType = ['audio/webm;codecs=opus','audio/webm','audio/ogg','audio/mp4']
+      .find(t => MediaRecorder.isTypeSupported(t)) || '';
+    selfReportRecorder = new MediaRecorder(stream, mimeType ? {mimeType} : {});
+    selfReportChunks = [];
+
+    selfReportRecorder.ondataavailable = e => { if (e.data.size > 0) selfReportChunks.push(e.data); };
+
+    selfReportRecorder.onstop = async () => {
+      stream.getTracks().forEach(t => t.stop());
+      const blob = new Blob(selfReportChunks, { type: selfReportRecorder.mimeType || 'audio/webm' });
+      try {
+        const res = await fetch('/api/transcribe', { method:'POST', body: blob,
+          headers:{'Content-Type': selfReportRecorder.mimeType || 'audio/webm'} });
+        const data = await res.json();
+        const transcript = data.transcript || '';
+        if (transcript) {
+          document.getElementById('pt-report').textContent = `"${transcript}"`;
+          status.textContent = '✓ Updated from voice recording';
+          status.classList.remove('hidden');
+          setTimeout(() => status.classList.add('hidden'), 4000);
+          // Save to patient file if not a protected demo patient
+          if (selectedPatient && !['PT-7421','PT-3892','PT-5163'].includes(selectedPatient.id)) {
+            fetch(`/api/patients/${selectedPatient.id}/self_report`, {
+              method: 'PATCH',
+              headers: {'Content-Type':'application/json'},
+              body: JSON.stringify({ text: transcript }),
+            }).catch(() => {});
+          }
+        } else {
+          status.textContent = '⚠ Could not transcribe — try again';
+          status.classList.remove('hidden');
+          setTimeout(() => status.classList.add('hidden'), 4000);
+        }
+      } catch (e) {
+        status.textContent = `⚠ Transcription error: ${e.message}`;
+        status.classList.remove('hidden');
+        setTimeout(() => status.classList.add('hidden'), 5000);
+      }
+      btn.className = 'rec-btn idle flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium';
+      btn.textContent = '🎤 Record';
+      btn.disabled = false;
+    };
+
+    selfReportRecorder.start();
+    btn.className = 'rec-btn recording flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium';
+    btn.textContent = '⏹ Stop';
+    status.textContent = 'Recording… click Stop when done';
+    status.classList.remove('hidden');
+  } catch (e) {
+    status.textContent = `⚠ Microphone error: ${e.message}`;
+    status.classList.remove('hidden');
+    setTimeout(() => status.classList.add('hidden'), 5000);
+  }
 }
 
 // ─── Agent cards ──────────────────────────────────────────────────────────────
+const CARD_CLASS_BASE = 'agent-card glass rounded-lg p-2 state-idle';
+
+function _cardIdleHTML(meta) {
+  return `<div class="flex items-center gap-1.5">
+    <span class="text-sm">${meta.icon}</span>
+    <span class="text-xs font-semibold text-slate-400">${meta.label}</span>
+    <span class="text-xs text-slate-700 ml-auto">Waiting…</span>
+  </div>`;
+}
+
 function initAgentCards() {
   Object.entries(AGENT_META).forEach(([id, meta]) => {
     const card = document.getElementById(`card-${id}`);
     if (!card) return;
-    card.innerHTML = `
-      <div class="flex items-center gap-2 mb-1.5">
-        <span class="text-base">${meta.icon}</span>
-        <span class="text-xs font-semibold text-slate-300">${meta.label}</span>
-      </div>
-      <p class="text-xs text-slate-600">${meta.desc}</p>
-      <div class="agent-status mt-2 text-xs text-slate-600"></div>`;
+    card.innerHTML = _cardIdleHTML(meta);
   });
 }
 
@@ -723,71 +1327,261 @@ function resetPipeline() {
   Object.entries(AGENT_META).forEach(([id, meta]) => {
     const card = document.getElementById(`card-${id}`);
     if (!card) return;
-    card.className = 'agent-card glass rounded-xl p-3 flex-1 state-idle';
-    card.innerHTML = `
-      <div class="flex items-center gap-2 mb-1.5">
-        <span class="text-base">${meta.icon}</span>
-        <span class="text-xs font-semibold text-slate-300">${meta.label}</span>
-      </div>
-      <p class="text-xs text-slate-600">${meta.desc}</p>
-      <div class="agent-status mt-2 text-xs text-slate-600">Waiting…</div>`;
+    card.className = CARD_CLASS_BASE;
+    card.innerHTML = _cardIdleHTML(meta);
   });
 }
 
 function setAgentRunning(id) {
   const card = document.getElementById(`card-${id}`);
   if (!card) return;
-  card.className = 'agent-card glass rounded-xl p-3 flex-1 state-running';
-  card.querySelector('.agent-status').innerHTML = '<span class="text-blue-400 animate-pulse">● Analyzing…</span>';
+  const meta = AGENT_META[id];
+  card.className = 'agent-card glass rounded-lg p-2 state-running';
+  card.innerHTML = `<div class="flex items-center gap-1.5">
+    <span class="text-sm">${meta.icon}</span>
+    <span class="text-xs font-semibold text-slate-300">${meta.label}</span>
+    <span class="text-xs text-blue-400 animate-pulse ml-auto">● Analyzing…</span>
+  </div>`;
 }
 
 function setAgentComplete(id, brief, elapsed) {
   const card = document.getElementById(`card-${id}`);
   if (!card) return;
   const meta = AGENT_META[id];
-  const sev = brief.severity || brief.risk_level || 'unknown';
-  card.className = `agent-card glass rounded-xl p-3 flex-1 state-done-${sev}`;
-  const color = SEV_COLORS[sev] || '#6b7280';
-  let content = '';
+  const rawSev = brief.severity || brief.risk_level || '';
+  // Never show "unknown" — map to na visually; knowledge parse-error gets "—" not "N/A"
+  const sev = rawSev && rawSev !== 'unknown' ? rawSev : 'na';
+  const displaySev = sev === 'na'
+    ? (id === 'knowledge' && brief.parse_error ? '—' : 'N/A')
+    : sev.toUpperCase();
+  card.className = `agent-card glass rounded-lg p-2 state-done-${sev === 'na' ? 'unknown' : sev}`;
+  const color = SEV_COLORS[rawSev] || '#6b7280';
+  let detail = '';
 
   if (id === 'signal') {
-    const alerts = (brief.alerts||[]).slice(0,2);
-    content = `<span style="color:${color}" class="font-bold text-sm">NEWS2: ${brief.news2_score??'?'}/15</span>
-      <span class="text-slate-500 ml-1 text-xs">${brief.news2_risk??''}</span>
-      ${alerts.map(a=>`<p class="text-xs truncate mt-0.5" style="color:#fb923c">⚠ ${esc(a)}</p>`).join('')}`;
+    const n2 = brief.news2_score ?? '?';
+    const alerts = (brief.alerts||[]).slice(0,1);
+    // Vital readings row
+    const vParts = [];
+    if (brief.hr  != null) vParts.push(`HR <span style="color:#f9a8d4">${typeof brief.hr  === 'number' ? brief.hr.toFixed(1)  : brief.hr}</span>`);
+    if (brief.rr  != null) vParts.push(`RR <span style="color:#a78bfa">${typeof brief.rr  === 'number' ? brief.rr.toFixed(1)  : brief.rr}</span>`);
+    if (brief.sbp != null && brief.dbp != null)
+      vParts.push(`BP <span style="color:#67e8f9">${Math.round(brief.sbp)}/${Math.round(brief.dbp)}</span>`);
+    const totalWakes = (brief.sleep_interruptions || 0) + (brief.light_wake_count || 0);
+    vParts.push(`💤 <span style="color:${totalWakes > 3 ? '#fb923c' : '#94a3b8'}">${totalWakes} wakes</span>`);
+    const vitalsRow = vParts.length ? `<div class="flex flex-wrap gap-2 mt-0.5 text-xs">${vParts.map(v=>`<span>${v}</span>`).join('')}</div>` : '';
+    // Show agent's live-vitals summary; fall back to first non-weight alert
+    const weightRe = /weight|lbs|fluid|retention|furosemide/i;
+    const cleanAlert = alerts.find(a => !weightRe.test(a));
+    const analysisLine = brief.summary
+      ? `<div class="mt-1 text-slate-500" style="font-size:0.68rem;line-height:1.3">${esc(brief.summary)}</div>`
+      : cleanAlert
+        ? `<div class="mt-0.5" style="color:#fb923c">· ${esc(cleanAlert)}</div>`
+        : '';
+    detail = `<div>NEWS2 <strong style="color:${color}">${n2}/15</strong> <span class="text-slate-500 text-xs">${brief.news2_risk||''}</span></div>
+      ${vitalsRow}
+      ${analysisLine}`;
   } else if (id === 'trend') {
-    content = (brief.concerning_trends||[]).slice(0,2).map(t=>
-      `<p class="text-xs truncate mb-0.5" style="color:#fb923c">📈 ${esc(t)}</p>`).join('');
+    const t = (brief.concerning_trends||[])[0] || 'No concerning trends';
+    detail = `<span style="color:#fb923c">📈 ${esc(t)}</span>`;
   } else if (id === 'self_report') {
-    const traj = (brief.trajectory||'').replace('_',' ').toUpperCase();
-    const flag = (brief.red_flags||[])[0]||'';
-    content = `<span class="text-xs font-medium" style="color:${color}">${traj}</span>
-      ${flag?`<p class="text-xs italic text-slate-400 mt-1 truncate">"${esc(flag)}"</p>`:''}`;
+    const traj  = (brief.trajectory||'N/A').replace('_',' ');
+    const flags = brief.red_flags || [];
+    // Word-boundary truncation helper
+    function truncWord(s, max) {
+      if (!s || s.length <= max) return esc(s);
+      const cut = s.lastIndexOf(' ', max);
+      return esc(cut > 10 ? s.substring(0, cut) : s.substring(0, max)) + '…';
+    }
+    const flagsHtml = flags.map(f =>
+      `<div style="color:#fb923c;font-size:0.67rem;line-height:1.35;margin-bottom:0.25rem;font-style:italic">"${esc(f)}"</div>`
+    ).join('');
+    const flagPreview = flags[0]
+      ? `<div style="color:#94a3b8;font-size:0.67rem;margin-top:0.2rem;font-style:italic">"${truncWord(flags[0], 60)}"</div>`
+      : '';
+    const dropdown = flags.length
+      ? `<details style="margin-top:0.3rem">
+           <summary style="font-size:0.67rem;color:#475569;cursor:pointer;list-style:none;user-select:none" onmouseover="this.style.color='#94a3b8'" onmouseout="this.style.color='#475569'">▸ Patient quotes (${flags.length})</summary>
+           <div style="padding-top:0.35rem">${flagsHtml}</div>
+         </details>`
+      : '';
+    detail = `<div><span style="color:${color};font-weight:600">${esc(traj)}</span></div>
+      ${flagPreview}
+      ${dropdown}`;
   } else if (id === 'knowledge') {
-    content = (brief.triggered||[]).slice(0,2).map(t=>
-      `<p class="text-xs truncate mb-0.5" style="color:#f87171">✓ ${esc(t)}</p>`).join('');
+    const triggered  = brief.triggered  || [];
+    const approaching = brief.approaching || [];
+    const summary    = brief.summary    || '';
+
+    // Guard against raw JSON leaking into the display (parse fallback artifact)
+    const safeSummary = summary && !summary.trim().startsWith('{') && !summary.trim().startsWith('[') ? summary : '';
+
+    // Primary line — never blank, never shows internal errors to users
+    const mostApplicable = brief.most_applicable || '';
+    const primaryText = triggered.length
+      ? `<span style="color:#f87171">⚑ ${esc(triggered[0])}</span>`
+      : approaching.length
+        ? `<span style="color:#fb923c">→ ${esc(approaching[0])}</span>`
+        : safeSummary
+          ? `<span style="color:#94a3b8">${esc(safeSummary.substring(0,90))}${safeSummary.length>90?'…':''}</span>`
+          : mostApplicable
+            ? `<span style="color:#94a3b8">📋 ${esc(mostApplicable.substring(0,85))}${mostApplicable.length>85?'…':''}</span>`
+            : `<span style="color:#6b7280">Guidelines &amp; evidence reviewed — see citations ↓</span>`;
+
+    // Evidence citations from research cache (already in browser)
+    const resData  = selectedPatient && selectedPatient._researchData;
+    const evidItems = resData ? (resData.evidence_highlights || []).slice(0, 3) : [];
+    const abstrMap  = {};
+    (resData && resData.pubmed_abstracts || []).forEach(a => { abstrMap[a.url] = a.snippet; });
+
+    const triggeredHtml = triggered.map(t =>
+      `<div style="display:flex;gap:0.35rem;align-items:start;margin-bottom:0.2rem">
+         <span style="color:#f87171;flex-shrink:0">⚑</span>
+         <span style="color:#fca5a5;font-size:0.67rem">${esc(t)}</span>
+       </div>`).join('');
+
+    const approachingHtml = approaching.map(a =>
+      `<div style="display:flex;gap:0.35rem;align-items:start;margin-bottom:0.2rem">
+         <span style="color:#fb923c;flex-shrink:0">→</span>
+         <span style="color:#fdba74;font-size:0.67rem">${esc(a)}</span>
+       </div>`).join('');
+
+    const evidHtml = evidItems.map(e => {
+      const domain  = e.url ? e.url.replace(/^https?:\/\/(www\.)?/,'').split('/')[0] : '';
+      const snippet = abstrMap[e.url] || '';
+      const quote   = snippet
+        ? `<blockquote style="color:#cbd5e1;font-style:italic;font-size:0.65rem;line-height:1.35;margin:0.3rem 0 0">"${esc(snippet.length>220?snippet.substring(0,220)+'…':snippet)}"</blockquote>`
+        : '';
+      return `<div style="border-left:2px solid #334155;padding-left:0.5rem;margin-top:0.45rem">
+        <div style="font-size:0.65rem;margin-bottom:0.1rem">
+          <span style="color:#60a5fa;font-weight:600">${esc(e.source||domain||'PubMed')}</span>
+          ${e.url?` · <a href="${esc(e.url)}" target="_blank" style="color:#818cf8;text-decoration:underline;font-size:0.63rem">${esc(domain)}</a>`:''}
+        </div>
+        ${e.key_finding?`<div style="color:#e2e8f0;font-size:0.65rem;line-height:1.3">${esc(e.key_finding)}</div>`:''}
+        ${quote}
+        ${e.clinical_relevance?`<div style="color:#a78bfa;font-size:0.63rem;margin-top:0.2rem">${esc(e.clinical_relevance)}</div>`:''}
+      </div>`;
+    }).join('');
+
+    const noCiteNote = !evidItems.length
+      ? `<div style="color:#475569;font-size:0.65rem;font-style:italic;margin-top:0.35rem">Run Medical Research to load cited sources.</div>`
+      : '';
+
+    const dropdownBody = [
+      triggeredHtml  ? `<div style="margin-bottom:0.3rem">${triggeredHtml}</div>` : '',
+      approachingHtml? `<div style="color:#94a3b8;font-size:0.63rem;margin-bottom:0.15rem;margin-top:${triggeredHtml?'0.4rem':'0'}">APPROACHING THRESHOLDS</div>${approachingHtml}` : '',
+      safeSummary    ? `<div style="color:#94a3b8;font-size:0.65rem;line-height:1.4;margin-top:0.45rem;padding-top:0.35rem;border-top:1px solid #1e293b">${esc(safeSummary)}</div>` : '',
+      evidHtml       ? `<div style="margin-top:0.5rem;padding-top:0.35rem;border-top:1px solid #1e293b"><div style="color:#94a3b8;font-size:0.63rem;font-weight:600;letter-spacing:0.04em;margin-bottom:0.1rem">CITED SOURCES</div>${evidHtml}</div>` : '',
+      noCiteNote,
+    ].filter(Boolean).join('');
+
+    detail = `${primaryText}
+      <details style="margin-top:0.35rem">
+        <summary style="font-size:0.67rem;color:#475569;cursor:pointer;list-style:none;user-select:none" onmouseover="this.style.color='#94a3b8'" onmouseout="this.style.color='#475569'">▸ Evidence &amp; citations</summary>
+        <div style="padding-top:0.4rem">${dropdownBody}</div>
+      </details>`;
   } else if (id === 'skeptic') {
-    const bc = brief.strongest_case||'';
-    content = `<p class="text-xs text-slate-400 italic truncate">"${esc(bc.substring(0,80))}…"</p>
-      <p class="text-xs mt-1 text-yellow-500/70">Fails: ${esc((brief.where_fails||'').substring(0,60))}…</p>`;
+    const debate   = brief.debate || [];
+    const verdict  = brief.overall_verdict || '';
+    const conf     = brief.confidence || '';
+    const strongest = brief.strongest_case || '';
+    const debunked  = brief.strongest_case_debunked || brief.where_fails || '';
+
+    // Verdict pill colour
+    const verdictColor = verdict === 'no_action' ? '#4ade80'
+      : verdict === 'watchful_wait' ? '#fb923c' : '#f87171';
+    const verdictLabel = verdict === 'escalation_warranted' ? 'Escalation warranted'
+      : verdict === 'watchful_wait' ? 'Watchful wait'
+      : verdict === 'no_action'     ? 'No action needed'
+      : 'Debate complete';
+
+    // Primary summary: strongest benign case → its debunking
+    const primaryLine = strongest
+      ? `<div style="color:#94a3b8;font-size:0.68rem;line-height:1.35;font-style:italic">"${esc(strongest)}"</div>
+         ${debunked ? `<div style="color:#f87171;font-size:0.67rem;margin-top:0.2rem">⚡ ${esc(debunked)}</div>` : ''}`
+      : `<span style="color:#6b7280;font-style:italic">No benign case identified.</span>`;
+
+    // Verdict badge row
+    const verdictRow = verdict
+      ? `<div style="display:flex;align-items:center;gap:0.4rem;margin-top:0.25rem">
+           <span style="background:${verdictColor}22;color:${verdictColor};font-size:0.62rem;font-weight:700;padding:0.1rem 0.45rem;border-radius:999px;border:1px solid ${verdictColor}44">${esc(verdictLabel)}</span>
+           ${conf ? `<span style="color:#475569;font-size:0.62rem">${esc(conf)} skeptic confidence</span>` : ''}
+         </div>`
+      : '';
+
+    // Verdict colour lookup per round
+    function roundVerdictStyle(v) {
+      return v === 'hypothesis_holds'    ? 'color:#4ade80'
+           : v === 'hypothesis_weakened' ? 'color:#fb923c'
+                                         : 'color:#f87171';
+    }
+    function roundVerdictLabel(v) {
+      return v === 'hypothesis_holds'    ? '✓ Holds'
+           : v === 'hypothesis_weakened' ? '~ Weakened'
+                                         : '✗ Rejected';
+    }
+    function strengthStyle(s) {
+      return s === 'strong' ? 'color:#4ade80' : s === 'moderate' ? 'color:#fb923c' : 'color:#94a3b8';
+    }
+
+    // Debate rounds
+    const debateHtml = debate.map((round, i) => `
+      <div style="border:1px solid #1e293b;border-radius:6px;padding:0.5rem;margin-top:${i===0?'0':'0.45rem'}">
+        <div style="font-size:0.65rem;font-weight:700;color:#64748b;margin-bottom:0.3rem;text-transform:uppercase;letter-spacing:0.04em">
+          Round ${i+1} · ${esc(round.finding || '')}
+        </div>
+        <!-- Hypothesis -->
+        <div style="display:flex;gap:0.35rem;margin-bottom:0.25rem">
+          <span style="flex-shrink:0;font-size:0.7rem">💭</span>
+          <div>
+            <span style="font-size:0.62rem;font-weight:600;${strengthStyle(round.hypothesis_strength)};text-transform:uppercase;margin-right:0.3rem">${esc(round.hypothesis_strength||'?')}</span>
+            <span style="color:#cbd5e1;font-size:0.67rem;line-height:1.35">${esc(round.hypothesis||'')}</span>
+            ${round.evidence_for_hypothesis ? `<div style="color:#64748b;font-size:0.64rem;margin-top:0.15rem;font-style:italic">${esc(round.evidence_for_hypothesis)}</div>` : ''}
+          </div>
+        </div>
+        <!-- Rebuttal -->
+        <div style="display:flex;gap:0.35rem;margin-bottom:0.3rem">
+          <span style="flex-shrink:0;font-size:0.7rem">⚡</span>
+          <span style="color:#fca5a5;font-size:0.67rem;line-height:1.35">${esc(round.rebuttal||'')}</span>
+        </div>
+        <!-- Verdict chip -->
+        <div style="font-size:0.63rem;font-weight:700;${roundVerdictStyle(round.verdict)}">${roundVerdictLabel(round.verdict)}</div>
+      </div>`).join('');
+
+    const whereFailsHtml = brief.where_fails
+      ? `<div style="margin-top:0.5rem;padding-top:0.4rem;border-top:1px solid #1e293b;color:#f87171;font-size:0.65rem;line-height:1.4">
+           <span style="font-weight:700;text-transform:uppercase;font-size:0.6rem;color:#94a3b8;display:block;margin-bottom:0.15rem">Where skepticism fails</span>
+           ${esc(brief.where_fails)}
+         </div>`
+      : '';
+
+    const dropdownContent = debateHtml || whereFailsHtml
+      ? `${debateHtml}${whereFailsHtml}`
+      : '<div style="color:#475569;font-size:0.65rem;font-style:italic">No debate rounds generated.</div>';
+
+    detail = `${primaryLine}
+      ${verdictRow}
+      <details style="margin-top:0.4rem">
+        <summary style="font-size:0.67rem;color:#475569;cursor:pointer;list-style:none;user-select:none" onmouseover="this.style.color='#94a3b8'" onmouseout="this.style.color='#475569'">▸ Full debate (${debate.length} rounds)</summary>
+        <div style="padding-top:0.4rem">${dropdownContent}</div>
+      </details>`;
   } else if (id === 'reconciler') {
-    const sc = brief.risk_score??0;
-    content = `<p class="font-bold" style="color:${color};font-size:1.4rem;line-height:1.1">${sc}<span class="text-xs font-normal text-slate-500">/100</span></p>
-      ${(brief.primary_drivers||[]).slice(0,1).map(d=>`<p class="text-xs truncate mt-0.5 text-slate-400">${esc(d)}</p>`).join('')}`;
+    const sc = brief.risk_score ?? 'N/A';
+    const conf = brief.confidence ? ` · ${brief.confidence} confidence` : '';
+    detail = `Risk <strong style="color:${color};font-size:1.05rem">${sc}/100</strong><span class="text-slate-500">${esc(conf)}</span>`;
   } else if (id === 'brief') {
-    content = `<p class="text-xs text-slate-400">SBAR ready ↓</p>`;
+    detail = `<span class="text-slate-400">SBAR ready ↓</span>`;
   }
 
+  const elapsedStr = elapsed != null ? `${elapsed}s` : '';
   card.innerHTML = `
-    <div class="flex items-center justify-between mb-1.5">
-      <div class="flex items-center gap-1.5">
-        <span class="text-base">${meta.icon}</span>
-        <span class="text-xs font-semibold text-slate-200">${meta.label}</span>
-      </div>
-      <span class="text-xs px-1.5 py-0.5 rounded-full font-semibold badge-${sev}">${sev}</span>
+    <div class="flex items-center gap-1.5 flex-wrap">
+      <span class="text-sm">${meta.icon}</span>
+      <span class="text-xs font-semibold text-slate-200">${meta.label}</span>
+      <span class="text-xs px-1.5 py-0.5 rounded-full font-semibold badge-${sev === 'na' ? 'unknown' : sev} ml-auto">${displaySev}</span>
     </div>
-    <div class="agent-status">${content}</div>
-    <div class="mt-1.5 text-xs text-slate-600">${elapsed}s</div>`;
+    <div class="text-xs mt-1 leading-relaxed text-slate-400">${detail}</div>
+    ${elapsedStr ? `<div class="text-xs text-slate-700 mt-0.5">${elapsedStr}</div>` : ''}`;
 
   agentsDone++;
   updateProgress(agentsDone);
@@ -809,6 +1603,9 @@ function runAnalysis() {
   document.getElementById('pipeline-section').classList.remove('hidden');
   document.getElementById('risk-section').classList.add('hidden');
   document.getElementById('sbar-section').classList.add('hidden');
+  // Reset mode caches for new analysis
+  currentSbarSimple = ''; sbarMode = 'clinical';
+  document.getElementById('sbar-simplify-status').classList.add('hidden');
   resetPipeline();
 
   const es = new EventSource(`/api/analyze/${selectedPatient.id}`);
@@ -818,6 +1615,14 @@ function runAnalysis() {
     else if (d.type === 'agent_complete') setAgentComplete(d.agent_id, d.brief, d.elapsed);
     else if (d.type === 'pipeline_complete') {
       renderRisk(d); renderSbar(d.sbar);
+      renderEscalation(d.escalation_level ?? 0, d.escalation_recommendation ?? '');
+      if (d.web_research_incorporated) {
+        const src = (d.web_research_sources || []).join(', ');
+        const note = document.createElement('p');
+        note.className = 'text-xs text-violet-400 mt-2';
+        note.innerHTML = `🔬 Literature incorporated: <span class="text-slate-400">${esc(src)}</span>`;
+        document.getElementById('sbar-section').prepend(note);
+      }
       es.close(); finishRun(d);
     } else if (d.type === 'error') {
       showError(d.message); es.close(); finishRun(null);
@@ -866,45 +1671,536 @@ function renderRisk(d) {
 }
 
 function buildGauge(score, level) {
-  const color = SEV_COLORS[level]||'#6b7280';
-  const cx=80, cy=86, r=60, circ=2*Math.PI*r;
-  const trackLen=circ*0.75, scoreLen=(score/100)*trackLen;
-  return `<svg width="160" height="130" viewBox="0 0 160 130">
-    <defs><filter id="glow"><feGaussianBlur stdDeviation="3" result="cb"/>
-    <feMerge><feMergeNode in="cb"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>
-    <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#1e2538" stroke-width="10"
-      stroke-dasharray="${trackLen.toFixed(2)} ${circ.toFixed(2)}" stroke-linecap="round" transform="rotate(225 ${cx} ${cy})"/>
-    <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${color}" stroke-width="10"
+  const color = SEV_COLORS[level] || '#6b7280';
+  // Centre the arc with enough margin on all sides so nothing clips
+  const cx = 90, cy = 90, r = 68, sw = 11;
+  const circ = 2 * Math.PI * r;
+  const trackLen = circ * 0.75;
+  const scoreLen = (score / 100) * trackLen;
+  const W = 180, H = 155;
+  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="overflow:visible">
+    <defs>
+      <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+        <feGaussianBlur stdDeviation="4" result="cb"/>
+        <feMerge><feMergeNode in="cb"/><feMergeNode in="SourceGraphic"/></feMerge>
+      </filter>
+    </defs>
+    <!-- Track -->
+    <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#1e2538" stroke-width="${sw}"
+      stroke-dasharray="${trackLen.toFixed(2)} ${circ.toFixed(2)}" stroke-linecap="round"
+      transform="rotate(225 ${cx} ${cy})"/>
+    <!-- Score arc -->
+    <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${color}" stroke-width="${sw}"
       stroke-dasharray="${scoreLen.toFixed(2)} ${circ.toFixed(2)}" stroke-linecap="round"
       filter="url(#glow)" transform="rotate(225 ${cx} ${cy})"/>
-    <text x="${cx}" y="${cy-4}" text-anchor="middle" fill="${color}" font-size="28" font-weight="800"
-      font-family="Inter,system-ui,sans-serif">${score}</text>
-    <text x="${cx}" y="${cy+14}" text-anchor="middle" fill="#4b5563" font-size="11"
-      font-family="Inter,system-ui,sans-serif">/100</text>
+    <!-- Score number -->
+    <text x="${cx}" y="${cy + 2}" text-anchor="middle" fill="${color}"
+      font-size="34" font-weight="800" font-family="Inter,system-ui,sans-serif">${score}</text>
+    <text x="${cx}" y="${cy + 20}" text-anchor="middle" fill="#4b5563"
+      font-size="12" font-family="Inter,system-ui,sans-serif">/100</text>
   </svg>`;
 }
+
+// ─── SBAR mode state ──────────────────────────────────────────────────────────
+let sbarMode = 'clinical';      // 'clinical' | 'simple'
+let currentSbarSimple = '';     // cached simplified version
 
 function renderSbar(text) {
   if (!text) return;
   currentSbar = text;
+  currentSbarSimple = '';       // reset simplified cache on new analysis
+  sbarMode = 'clinical';
+  document.getElementById('sbar-mode-clinical').classList.add('active');
+  document.getElementById('sbar-mode-simple').classList.remove('active');
   document.getElementById('sbar-section').classList.remove('hidden');
   document.getElementById('sbar-content').innerHTML = formatSbar(text);
 }
 
+function setSbarMode(mode) {
+  if (mode === sbarMode) return;
+  sbarMode = mode;
+  document.getElementById('sbar-mode-clinical').classList.toggle('active', mode === 'clinical');
+  document.getElementById('sbar-mode-simple').classList.toggle('active', mode === 'simple');
+
+  if (mode === 'clinical') {
+    document.getElementById('sbar-content').innerHTML = formatSbar(currentSbar);
+    document.getElementById('sbar-simplify-status').classList.add('hidden');
+    return;
+  }
+
+  // Patient-Friendly mode
+  if (currentSbarSimple) {
+    document.getElementById('sbar-content').innerHTML = formatSbar(currentSbarSimple);
+    return;
+  }
+  // Need to generate
+  const statusEl = document.getElementById('sbar-simplify-status');
+  statusEl.classList.remove('hidden');
+  statusEl.innerHTML = '<span class="simplify-loading">Generating patient-friendly version…</span>';
+
+  fetch('/api/simplify', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({text: currentSbar, type: 'sbar'}),
+  })
+    .then(r => r.json())
+    .then(d => {
+      currentSbarSimple = d.simplified || '';
+      document.getElementById('sbar-content').innerHTML = formatSbar(currentSbarSimple || currentSbar);
+      statusEl.classList.add('hidden');
+    })
+    .catch(() => {
+      statusEl.innerHTML = '<span class="text-xs text-red-400">Could not simplify — showing clinical version.</span>';
+      document.getElementById('sbar-content').innerHTML = formatSbar(currentSbar);
+    });
+}
+
+// ─── Shared markdown/SBAR renderer ───────────────────────────────────────────
+// Handles both clinical SBAR (**SECTION** headers, numbered sbar-list)
+// and patient-friendly markdown (# Title, ## Section, - bullets, 1. lists).
 function formatSbar(text) {
+  if (!text) return '';
+  const lines = text.replace(/\r\n/g, '\n').replace(/\n{3,}/g, '\n\n').split('\n');
+
+  // Pre-pass: merge orphaned numbered items ("1.\nWithin 24h:\ncontent" → "1. Within 24h: content")
+  const merged = [];
+  for (let i = 0; i < lines.length; i++) {
+    const numOnly = lines[i].match(/^(\d+)\.\s*$/);
+    if (numOnly && i + 1 < lines.length) {
+      let combined = numOnly[1] + '. ';
+      let j = i + 1;
+      while (j < lines.length && lines[j].trim() === '') j++;
+      while (j < lines.length && lines[j].trim() !== '' &&
+             !lines[j].match(/^\d+\.\s*$/) &&
+             !lines[j].match(/^\*\*[A-Z]/) &&
+             !lines[j].match(/^#{1,3} /)) {
+        combined += lines[j].trim() + ' ';
+        j++;
+      }
+      merged.push(combined.trim());
+      i = j - 1;
+    } else {
+      merged.push(lines[i]);
+    }
+  }
+
+  let html = '';
+  let inOl = false, inUl = false;
+
+  const closeOl = () => { if (inOl) { html += '</ol>'; inOl = false; } };
+  const closeUl = () => { if (inUl) { html += '</ul>'; inUl = false; } };
+  const closeLists = () => { closeOl(); closeUl(); };
+
+  for (let i = 0; i < merged.length; i++) {
+    const line = merged[i].trim();
+
+    // Markdown H1: # Title  →  large section header (used by patient-friendly mode)
+    if (/^# .+/.test(line)) {
+      closeLists();
+      html += `<h2 class="text-base font-bold text-white mt-5 mb-2 pb-1.5" style="border-bottom:1px solid rgba(255,255,255,0.08)">${inlineFmt(line.slice(2))}</h2>`;
+      continue;
+    }
+
+    // Markdown H2: ## Subsection
+    if (/^## .+/.test(line)) {
+      closeLists();
+      html += `<div class="sbar-section-hdr mt-3">${inlineFmt(line.slice(3))}</div>`;
+      continue;
+    }
+
+    // Markdown H3: ### Minor heading
+    if (/^### .+/.test(line)) {
+      closeLists();
+      html += `<p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mt-2 mb-0.5">${inlineFmt(line.slice(4))}</p>`;
+      continue;
+    }
+
+    // SBAR section headers: **SITUATION**, **BACKGROUND**, **ASSESSMENT**, **RECOMMENDATION**
+    const sbarHdr = line.match(/^\*\*([A-Z][A-Z\s\/]+)\*\*\s*$/);
+    if (sbarHdr) {
+      closeLists();
+      html += `<div class="sbar-section-hdr">${sbarHdr[1]}</div>`;
+      continue;
+    }
+
+    // HR
+    if (line === '---' || line === '***' || line === '___') {
+      closeLists();
+      html += '<hr>';
+      continue;
+    }
+
+    // Numbered list: "1. text" — inside SBAR uses styled sbar-list, elsewhere plain
+    const numItem = line.match(/^(\d+)\.\s+(.+)$/);
+    if (numItem) {
+      closeUl();
+      if (!inOl) { html += '<ol class="sbar-list">'; inOl = true; }
+      const content = numItem[2].replace(/^([^:]+:\s*)/, '<strong>$1</strong>');
+      html += `<li>${inlineFmt(content)}</li>`;
+      continue;
+    }
+
+    // Unordered list: "- item" or "* item"
+    const ulItem = line.match(/^[-*+]\s+(.+)$/);
+    if (ulItem) {
+      closeOl();
+      if (!inUl) { html += '<ul class="my-1.5 space-y-1">'; inUl = true; }
+      html += `<li class="flex gap-2 text-sm text-slate-300 leading-relaxed"><span class="text-blue-400/60 flex-shrink-0 mt-0.5">•</span><span>${inlineFmt(ulItem[1])}</span></li>`;
+      continue;
+    }
+
+    // Empty line
+    if (!line) {
+      closeLists();
+      continue;
+    }
+
+    closeLists();
+
+    // Italic footnote *text* (not **bold**)
+    if (line.startsWith('*') && line.endsWith('*') && !line.startsWith('**')) {
+      html += `<p class="sbar-footnote">${inlineFmt(line.slice(1, -1))}</p>`;
+    } else {
+      html += `<p>${inlineFmt(line)}</p>`;
+    }
+  }
+  closeLists();
+  return html;
+}
+
+function inlineFmt(text) {
+  // Bold before italic so **text** isn't confused with *text*
   return text
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-    .replace(/^---$/gm, '<hr>')
     .replace(/\*([^*]+)\*/g, '<em>$1</em>')
-    .replace(/\n\n+/g, '</p><p>')
-    .replace(/\n/g, '<br>');
+    .replace(/`([^`]+)`/g, '<code style="background:rgba(255,255,255,0.07);padding:1px 5px;border-radius:4px;font-size:0.82em">$1</code>');
 }
 
 function copySbar() {
-  navigator.clipboard.writeText(currentSbar).then(() => {
-    const btn = document.querySelector('#sbar-section button:last-child');
+  const active = sbarMode === 'simple' && currentSbarSimple ? currentSbarSimple : currentSbar;
+  navigator.clipboard.writeText(active).then(() => {
+    const btn = document.querySelector('#sbar-section .flex.gap-2 button:last-child');
     if (btn) { btn.textContent='Copied!'; btn.style.color='#4ade80'; setTimeout(()=>{btn.textContent='Copy';btn.style.color='';},2000); }
   });
+}
+
+// ─── Live monitor ─────────────────────────────────────────────────────────────
+function toggleLiveMonitor() {
+  if (!selectedPatient) return;
+  const panel = document.getElementById('live-monitor');
+  if (liveActive) {
+    stopLiveMonitor();
+    panel.classList.add('hidden');
+  } else {
+    panel.classList.remove('hidden');
+    startLiveMonitor(selectedPatient.id);
+  }
+}
+
+function startLiveMonitor(pid) {
+  if (liveES) { liveES.close(); }
+  hrBuffer.length = 0;
+  tiltEvents  = [];
+  lightEvents = [];
+  histTilt.fill(0);
+  histLight.fill(0);
+  liveActive = true;
+
+  // Init HR canvas
+  liveCanvas = document.getElementById('live-hr-canvas');
+  liveCtx    = liveCanvas.getContext('2d');
+
+  // Init sleep histogram canvas
+  sleepHistCanvas = document.getElementById('sleep-histogram');
+  sleepHistCtx    = sleepHistCanvas ? sleepHistCanvas.getContext('2d') : null;
+  if (sleepHistCanvas) {
+    const r2 = sleepHistCanvas.getBoundingClientRect();
+    sleepHistCanvas.width  = (r2.width  || 600) * (window.devicePixelRatio || 1);
+    sleepHistCanvas.height = (r2.height || 55)  * (window.devicePixelRatio || 1);
+  }
+
+  // Set internal resolution to match display size
+  const rect = liveCanvas.getBoundingClientRect();
+  liveCanvas.width  = rect.width  * window.devicePixelRatio || 800;
+  liveCanvas.height = rect.height * window.devicePixelRatio || 90;
+
+  // Reset logs and counters
+  const tiltLogEl = document.getElementById('tilt-log');
+  const lightLogEl = document.getElementById('light-log');
+  if (tiltLogEl)  tiltLogEl.innerHTML  = '<p class="text-xs text-slate-700 italic">No disturbances recorded yet.</p>';
+  if (lightLogEl) lightLogEl.innerHTML = '<p class="text-xs text-slate-700 italic">No events yet.</p>';
+  document.getElementById('tilt-count').textContent  = '0';
+  const lwcEl2 = document.getElementById('light-wake-count');
+  if (lwcEl2) lwcEl2.textContent = '0';
+  const lpill2 = document.getElementById('light-pill');
+  if (lpill2) { lpill2.className = 'light-dark-pill text-xs font-bold px-2 py-0.5 rounded-full'; lpill2.textContent = '🌙 Dark'; }
+
+  liveES = new EventSource(`/api/live/${pid}`);
+  liveES.onmessage = (e) => {
+    let d; try { d = JSON.parse(e.data); } catch { return; }
+    onLiveData(d);
+  };
+  liveES.onerror = () => { };  // silently retry; server keeps streaming
+}
+
+function stopLiveMonitor() {
+  liveActive = false;
+  if (liveES) { liveES.close(); liveES = null; }
+}
+
+function onLiveData(d) {
+  // Rolling HR buffer (keep last HR_WINDOW seconds)
+  hrBuffer.push({t: d.t, hr: d.hr});
+  if (hrBuffer.length > HR_WINDOW) hrBuffer.shift();
+
+  // Update timestamp + NEWS2
+  document.getElementById('live-timestamp').textContent = d.timestamp;
+  document.getElementById('live-news2').textContent     = d.news2_live;
+  document.getElementById('live-news2').style.color     = news2Color(d.news2_live);
+
+  // Update HR value
+  const hrEl = document.getElementById('live-hr-value');
+  hrEl.textContent  = d.hr;
+  hrEl.style.color  = hrColor(d.hr);
+
+  // Update vital tiles
+  document.getElementById('lv-spo2').textContent = d.spo2;
+  document.getElementById('lv-spo2').style.color = d.spo2 < 92 ? '#f87171' : d.spo2 < 95 ? '#fb923c' : '#60a5fa';
+  document.getElementById('lv-rr').textContent   = d.rr;
+  document.getElementById('lv-rr').style.color   = d.rr > 24 ? '#f87171' : d.rr > 20 ? '#fb923c' : '#a78bfa';
+  document.getElementById('lv-temp').textContent = d.temp.toFixed(1);
+  document.getElementById('lv-temp').style.color = d.temp > 38.5 ? '#f87171' : d.temp > 38.0 ? '#fb923c' : '#f472b6';
+  document.getElementById('lv-sbp').textContent  = d.sbp;
+  document.getElementById('lv-sbp').style.color  = d.sbp > 180 || d.sbp < 90 ? '#f87171' : '#67e8f9';
+  document.getElementById('lv-dbp').textContent  = d.dbp;
+
+  // Tilt / motion sensor
+  const pill = document.getElementById('tilt-pill');
+  if (d.tilt_active) {
+    pill.className = 'tilt-active-pill text-xs font-bold px-2.5 py-1 rounded-full transition-all';
+    pill.textContent = '⚡ Unstable';
+    const cnt = parseInt(document.getElementById('tilt-count').textContent);
+    if (d.tilt_count > cnt) {
+      tiltEvents.unshift(d.timestamp);
+      updateTiltLog();
+    }
+  } else {
+    pill.className = 'tilt-idle-pill text-xs font-bold px-2.5 py-1 rounded-full transition-all';
+    pill.textContent = '● Stable';
+  }
+  document.getElementById('tilt-count').textContent = d.tilt_count;
+
+  // Light / photoresistor sensor
+  const lv = d.light_value ?? 300;
+  const isDark = d.light_is_dark ?? true;
+  const lpill = document.getElementById('light-pill');
+  if (lpill) {
+    lpill.className = isDark
+      ? 'light-dark-pill text-xs font-bold px-2 py-0.5 rounded-full transition-all'
+      : 'light-on-pill  text-xs font-bold px-2 py-0.5 rounded-full transition-all';
+    lpill.textContent = isDark ? '🌙 Dark' : '💡 Awake';
+  }
+  const lvEl = document.getElementById('lv-light');
+  if (lvEl) { lvEl.textContent = lv; lvEl.style.color = isDark ? '#818cf8' : '#fbbf24'; }
+  const lwc = d.light_wake_count ?? 0;
+  const lwcEl = document.getElementById('light-wake-count');
+  if (lwcEl) {
+    const prev = parseInt(lwcEl.textContent) || 0;
+    if (lwc > prev) {
+      lightEvents.unshift(d.timestamp);
+      updateLightLog();
+    }
+    lwcEl.textContent = lwc;
+  }
+  // Light bar (0–400 raw; cap display at 400; inverted: high raw = dark)
+  const barEl = document.getElementById('light-bar');
+  if (barEl) {
+    const pct = Math.min(100, Math.round((400 - Math.min(lv, 400)) / 400 * 100));
+    barEl.style.width = pct + '%';
+  }
+  const stEl = document.getElementById('light-status-text');
+  if (stEl) stEl.textContent = isDark ? 'Room dark — patient asleep' : 'Light detected — patient awake';
+
+  // Histogram buffers — shift and push current sample
+  histTilt.shift();  histTilt.push(d.tilt_active ? 1 : 0);
+  histLight.shift(); histLight.push(isDark ? 0 : 1);
+
+  // Arduino connection status
+  const ab = document.getElementById('arduino-badge');
+  if (ab) {
+    ab.className   = d.arduino_connected ? 'arduino-badge' : 'arduino-badge sim';
+    ab.textContent = d.arduino_connected ? '🔌 Arduino' : '🔌 Arduino (waiting)';
+  }
+
+  // Redraw charts
+  drawHrChart(d.hr);
+  drawSleepHistogram();
+}
+
+function updateTiltLog() {
+  const log = document.getElementById('tilt-log');
+  if (!log) return;
+  if (!tiltEvents.length) { log.innerHTML = '<p class="text-xs text-slate-700 italic">No events yet.</p>'; return; }
+  log.innerHTML = tiltEvents.slice(0, 8).map(ts =>
+    `<div class="flex items-center gap-1.5 text-xs py-0.5">
+      <span class="w-1.5 h-1.5 rounded-full bg-red-500 flex-shrink-0"></span>
+      <span class="text-slate-500 mono">${ts}</span>
+    </div>`
+  ).join('');
+}
+
+function updateLightLog() {
+  const log = document.getElementById('light-log');
+  if (!log) return;
+  if (!lightEvents.length) { log.innerHTML = '<p class="text-xs text-slate-700 italic">No events yet.</p>'; return; }
+  log.innerHTML = lightEvents.slice(0, 8).map(ts =>
+    `<div class="flex items-center gap-1.5 text-xs py-0.5">
+      <span class="w-1.5 h-1.5 rounded-full bg-yellow-400 flex-shrink-0"></span>
+      <span class="text-slate-500 mono">${ts}</span>
+    </div>`
+  ).join('');
+}
+
+function drawSleepHistogram() {
+  if (!sleepHistCtx || !sleepHistCanvas) return;
+  const W = sleepHistCanvas.width, H = sleepHistCanvas.height;
+  const ctx = sleepHistCtx;
+  const dpr = window.devicePixelRatio || 1;
+  const n = histTilt.length;
+  const bw = W / n;
+
+  ctx.clearRect(0, 0, W, H);
+
+  // Background grid lines
+  ctx.strokeStyle = 'rgba(255,255,255,0.04)'; ctx.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) {
+    const y = H * i / 4;
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+  }
+
+  // Draw bars: tilt (red, top half), light wake (yellow, bottom half)
+  const halfH = H / 2;
+  for (let i = 0; i < n; i++) {
+    const x = i * bw;
+    // Tilt — fills down from top
+    if (histTilt[i]) {
+      ctx.fillStyle = 'rgba(239,68,68,0.55)';
+      ctx.fillRect(x, 0, Math.max(1, bw - 1), halfH - 1);
+    }
+    // Light on — fills up from bottom
+    if (histLight[i]) {
+      ctx.fillStyle = 'rgba(251,191,36,0.55)';
+      ctx.fillRect(x, halfH + 1, Math.max(1, bw - 1), halfH - 1);
+    }
+  }
+
+  // Centre divider
+  ctx.strokeStyle = 'rgba(255,255,255,0.06)'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(0, halfH); ctx.lineTo(W, halfH); ctx.stroke();
+
+  // Labels (top=motion, bottom=light)
+  ctx.fillStyle = 'rgba(239,68,68,0.6)'; ctx.font = `${9 * dpr}px Inter,sans-serif`;
+  ctx.fillText('motion', 4 * dpr, 10 * dpr);
+  ctx.fillStyle = 'rgba(251,191,36,0.6)';
+  ctx.fillText('light', 4 * dpr, H - 3 * dpr);
+}
+
+function drawHrChart(currentHr) {
+  if (!liveCanvas || !liveCtx) return;
+  const W = liveCanvas.width, H = liveCanvas.height;
+  const ctx = liveCtx;
+  const dpr = window.devicePixelRatio || 1;
+
+  ctx.clearRect(0, 0, W, H);
+
+  if (hrBuffer.length < 2) return;
+
+  // Dynamic range: patient's typical range ±20 bpm, minimum 40-160
+  const hrs = hrBuffer.map(p => p.hr);
+  const mn = Math.min(...hrs, currentHr) - 5;
+  const mx = Math.max(...hrs, currentHr) + 5;
+
+  // Threshold zones (horizontal bands)
+  const y130 = H - ((130 - mn) / (mx - mn)) * H;
+  const y100 = H - ((100 - mn) / (mx - mn)) * H;
+  const yClamp = (v) => Math.max(2, Math.min(H-2, H - ((v - mn) / (mx - mn)) * H));
+
+  // Zone fills
+  ctx.fillStyle = 'rgba(239,68,68,0.06)';
+  ctx.fillRect(0, 0, W, Math.max(0, y130));
+  ctx.fillStyle = 'rgba(245,158,11,0.05)';
+  ctx.fillRect(0, Math.max(0, y130), W, Math.max(0, y100 - y130));
+
+  // Grid lines
+  ctx.strokeStyle = 'rgba(255,255,255,0.05)'; ctx.lineWidth = 1 * dpr;
+  [Math.round(mn/10)*10, Math.round((mn+mx)/20)*10, Math.round(mx/10)*10].forEach(v => {
+    const y = yClamp(v);
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+    ctx.fillStyle = 'rgba(107,114,128,0.6)'; ctx.font = `${9*dpr}px Inter,sans-serif`;
+    ctx.fillText(v, 4, y - 2);
+  });
+
+  // Threshold labels
+  ctx.fillStyle = 'rgba(239,68,68,0.6)'; ctx.font = `${8*dpr}px Inter,sans-serif`;
+  ctx.fillText('130', W - 25*dpr, Math.max(8, y130 - 2));
+
+  // Line gradient based on current HR
+  const lineColor = currentHr > 130 ? '#ef4444' : currentHr > 100 ? '#f97316' : '#60a5fa';
+  ctx.strokeStyle = lineColor; ctx.lineWidth = 2 * dpr;
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+
+  // Glow
+  ctx.shadowColor = lineColor; ctx.shadowBlur = 6 * dpr;
+  ctx.beginPath();
+  hrBuffer.forEach((p, i) => {
+    const x = (i / (HR_WINDOW - 1)) * W;
+    const y = yClamp(p.hr);
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  // Current value dot
+  const lastX = ((hrBuffer.length - 1) / (HR_WINDOW - 1)) * W;
+  const lastY = yClamp(currentHr);
+  ctx.fillStyle = lineColor;
+  ctx.beginPath(); ctx.arc(lastX, lastY, 4 * dpr, 0, Math.PI * 2); ctx.fill();
+}
+
+function hrColor(hr) {
+  if (hr > 130 || hr < 40) return '#f87171';
+  if (hr > 110 || hr < 50) return '#fb923c';
+  return '#e2e8f0';
+}
+
+function news2Color(n) {
+  if (n >= 7) return '#ef4444';
+  if (n >= 5) return '#f97316';
+  if (n >= 3) return '#f59e0b';
+  return '#4ade80';
+}
+
+// ─── Escalation display ───────────────────────────────────────────────────────
+const ESC_META = [
+  { icon:'🟢', label:'Level 0 — Routine Monitoring',         badge:'ROUTINE',   badge_cls:'text-green-400 border-green-500/30 bg-green-500/10' },
+  { icon:'🟡', label:'Level 1 — Enhanced Monitoring',        badge:'ENHANCED',  badge_cls:'text-yellow-400 border-yellow-500/30 bg-yellow-500/10' },
+  { icon:'🟠', label:'Level 2 — Urgent Physician Contact',   badge:'URGENT',    badge_cls:'text-orange-400 border-orange-500/30 bg-orange-500/10' },
+  { icon:'🔴', label:'Level 3 — Emergency Services',         badge:'EMERGENCY', badge_cls:'text-red-400 border-red-500/30 bg-red-500/10' },
+];
+
+function renderEscalation(level, text) {
+  if (!text) return;
+  const box  = document.getElementById('escalation-box');
+  const meta = ESC_META[level] ?? ESC_META[0];
+  box.className = `rounded-xl p-4 border mt-3 esc-${level}`;
+  box.classList.remove('hidden');
+  document.getElementById('esc-icon').textContent  = meta.icon;
+  document.getElementById('esc-label').textContent = meta.label;
+  document.getElementById('esc-label').className   = `text-sm font-bold mt-0.5 esc-label-${level}`;
+  const badge = document.getElementById('esc-level-badge');
+  badge.textContent = meta.badge;
+  badge.className   = `ml-auto text-xs font-bold px-2 py-0.5 rounded-full border ${meta.badge_cls}`;
+  document.getElementById('esc-text').textContent  = text;
 }
 
 // ─── NEW PATIENT WIZARD ───────────────────────────────────────────────────────
@@ -1290,6 +2586,226 @@ function closeLogDetail() { document.getElementById('log-detail-modal').classLis
 ['logs-modal','log-detail-modal','np-modal'].forEach(id => {
   document.getElementById(id).addEventListener('click', e => { if(e.target===e.currentTarget) { if(id==='np-modal') closeNewPatient(); else document.getElementById(id).classList.add('hidden'); } });
 });
+
+// ─── Web Research ─────────────────────────────────────────────────────────────
+
+let researchES = null;
+let researchRunning = false;
+const progressRows = {};   // source → row element
+
+function openResearch() {
+  if (!selectedPatient) return;
+  document.getElementById('research-panel').classList.remove('hidden');
+  document.getElementById('research-panel').scrollIntoView({behavior: 'smooth', block: 'nearest'});
+
+  // If we already have cached results, show them immediately
+  if (selectedPatient._researchData) {
+    renderResearch(selectedPatient._researchData);
+    return;
+  }
+  // Otherwise prompt user to run
+}
+
+function closeResearch() {
+  document.getElementById('research-panel').classList.add('hidden');
+}
+
+function runResearch() {
+  if (!selectedPatient || researchRunning) return;
+  researchRunning = true;
+
+  const btn = document.getElementById('research-btn');
+  btn.disabled = true;
+  btn.textContent = '⏳ Fetching…';
+
+  const panel = document.getElementById('research-panel');
+  panel.classList.remove('hidden');
+  panel.scrollIntoView({behavior: 'smooth', block: 'nearest'});
+
+  const prog = document.getElementById('research-progress');
+  prog.innerHTML = '<p class="text-xs text-slate-500 font-semibold mb-2">Fetching medical literature…</p>';
+  document.getElementById('research-results').classList.add('hidden');
+  document.getElementById('research-rerun-btn').classList.add('hidden');
+
+  for (const k in progressRows) delete progressRows[k];
+
+  if (researchES) researchES.close();
+  researchES = new EventSource(`/api/research/${selectedPatient.id}`);
+
+  researchES.onmessage = (e) => {
+    let d; try { d = JSON.parse(e.data); } catch { return; }
+
+    if (d.type === 'progress') {
+      upsertProgressRow(d.source, d.status, false);
+    } else if (d.type === 'research_complete') {
+      upsertProgressRow('Claude', 'Synthesis complete ✓', true);
+      selectedPatient._researchData = d.data;
+      renderResearch(d.data);
+      researchES.close();
+      finishResearch();
+    } else if (d.type === 'error') {
+      const prog = document.getElementById('research-progress');
+      const err = document.createElement('p');
+      err.className = 'text-xs text-red-400 mt-2';
+      err.textContent = `Error: ${d.message}`;
+      prog.appendChild(err);
+      researchES.close();
+      finishResearch();
+    }
+  };
+  researchES.onerror = () => { researchES.close(); finishResearch(); };
+}
+
+function finishResearch() {
+  researchRunning = false;
+  const btn = document.getElementById('research-btn');
+  btn.disabled = false;
+  btn.textContent = '🔬 Research';
+  document.getElementById('research-rerun-btn').classList.remove('hidden');
+}
+
+function upsertProgressRow(source, status, done) {
+  const prog = document.getElementById('research-progress');
+  if (progressRows[source]) {
+    progressRows[source].querySelector('.src-status').textContent = status;
+    if (done) progressRows[source].classList.add('done');
+  } else {
+    const row = document.createElement('div');
+    row.className = `research-progress-row${done ? ' done' : ''}`;
+    const icon = { 'PubMed': '📄', 'Cleveland Clinic': '🏥', 'NIH MedlinePlus': '🏛', 'NHLBI': '🏛', 'AAOS OrthoInfo': '🦴', 'Claude': '🤖' }[source] || '🌐';
+    row.innerHTML = `<span class="src-label">${icon} ${esc(source)}</span><span class="src-status">${esc(status)}</span>`;
+    prog.appendChild(row);
+    progressRows[source] = row;
+  }
+}
+
+function renderResearch(data) {
+  if (!data || data.error) {
+    document.getElementById('research-progress').innerHTML +=
+      `<p class="text-xs text-red-400 mt-2">${esc(data?.error || 'Unknown error')}</p>`;
+    return;
+  }
+
+  document.getElementById('research-results').classList.remove('hidden');
+
+  // Diagnosis context
+  document.getElementById('res-context').textContent = data.diagnosis_context || '';
+  const surgEl = document.getElementById('res-surgery-reason');
+  if (data.surgery_reason) {
+    surgEl.textContent = data.surgery_reason;
+    surgEl.classList.remove('hidden');
+  } else {
+    surgEl.classList.add('hidden');
+  }
+
+  // Recovery timeline
+  const tl = data.recovery_timeline || {};
+  document.getElementById('res-timeline').innerHTML = [
+    ['Week 1', tl.week_1],
+    ['Week 2', tl.week_2],
+    ['Month 1', tl.month_1],
+  ].filter(([,v]) => v).map(([label, text]) => `
+    <div class="rounded-xl p-3 border border-white/7" style="background:rgba(255,255,255,0.03)">
+      <p class="text-xs font-bold text-slate-400 mb-1">${label}</p>
+      <p class="text-xs text-slate-400 leading-relaxed">${esc(text)}</p>
+    </div>`).join('');
+
+  // Complications
+  const comps = data.common_complications || [];
+  document.getElementById('res-complications').innerHTML = comps.map(c => `
+    <div class="complication-card">
+      <div class="flex items-start justify-between gap-3 mb-2">
+        <div>
+          <span class="text-sm font-semibold text-slate-200">${esc(c.name || '')}</span>
+          ${c.incidence ? `<span class="text-xs text-slate-500 ml-2">${esc(c.incidence)}</span>` : ''}
+        </div>
+        ${c.onset_window ? `<span class="text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 flex-shrink-0">${esc(c.onset_window)}</span>` : ''}
+      </div>
+      ${(c.warning_signs||[]).length ? `
+        <div class="flex flex-wrap gap-1.5 mb-1.5">
+          ${c.warning_signs.map(s => `<span class="text-xs px-2 py-0.5 rounded-full bg-red-500/8 text-red-400 border border-red-500/18">${esc(s)}</span>`).join('')}
+        </div>` : ''}
+      ${c.monitoring_action ? `<p class="text-xs text-slate-500 mt-1">${esc(c.monitoring_action)}</p>` : ''}
+    </div>`).join('');
+
+  // Red flags
+  const flags = data.red_flags || [];
+  document.getElementById('res-redflags').innerHTML = flags.map(f =>
+    `<li class="text-xs text-slate-300 leading-relaxed flex gap-2">
+      <span class="text-red-500 flex-shrink-0 mt-0.5">▸</span>
+      <span>${esc(f)}</span>
+    </li>`
+  ).join('');
+
+  // Monitoring parameters
+  const params = data.monitoring_parameters || [];
+  const paramsEl = document.getElementById('res-params');
+  if (paramsEl) {
+    paramsEl.innerHTML = params.length ? params.map(p => `
+      <div class="flex items-start gap-2 text-xs py-1 border-b border-white/4">
+        <span class="text-slate-400 font-semibold min-w-28 flex-shrink-0">${esc(p.parameter || '')}</span>
+        <span class="text-slate-500">Normal: ${esc(p.normal_range || '–')}</span>
+        <span class="text-amber-400 ml-auto flex-shrink-0">⚠ ${esc(p.concern_threshold || '?')}</span>
+      </div>`).join('')
+      : '<p class="text-xs text-slate-600 italic">No parameters extracted.</p>';
+  }
+
+  // Build PubMed abstract lookup by URL for pull-quotes
+  const abstracts = {};
+  (data.pubmed_abstracts || []).forEach(a => { abstracts[a.url] = a.snippet; });
+
+  // Evidence highlights with collapsible PubMed pull-quote
+  const evid = data.evidence_highlights || [];
+  const evidHtml = evid.length ? evid.map((e, i) => {
+    const pullQuote = abstracts[e.url] || e.key_finding || 'See source for full abstract.';
+    const shortUrl = e.url ? e.url.replace(/^https?:\/\//, '').split('/').slice(0,3).join('/') : '';
+    return `
+    <div class="evidence-card">
+      <div class="flex items-center gap-2 mb-1">
+        <span class="text-xs font-semibold text-slate-300">${esc(e.source || 'PubMed')}</span>
+        ${e.url ? `<a href="${esc(e.url)}" target="_blank" class="text-xs text-blue-400 hover:underline truncate max-w-xs">${esc(shortUrl)}</a>` : ''}
+      </div>
+      <p class="text-xs text-slate-300 leading-relaxed mb-1">${esc(e.key_finding || '')}</p>
+      ${e.clinical_relevance ? `<p class="text-xs text-violet-400 italic mb-1">${esc(e.clinical_relevance)}</p>` : ''}
+      <details class="mt-1">
+        <summary class="text-xs text-slate-600 cursor-pointer hover:text-slate-400 select-none" style="list-style:none">
+          ▸ Abstract excerpt
+        </summary>
+        <blockquote class="mt-1.5 pl-2 border-l-2 border-slate-700 text-xs text-slate-500 leading-relaxed italic">${esc(pullQuote)}</blockquote>
+      </details>
+    </div>`;
+  }).join('') : `<p class="text-xs text-slate-500 italic">No evidence highlights extracted from this run.</p>`;
+  document.getElementById('res-evidence').innerHTML = evidHtml;
+
+  // Tailored narrative — keep short (max 3 sentences)
+  const narr = data.tailored_risk_narrative || '';
+  const sentences = narr.replace(/\n+/g, ' ').match(/[^.!?]+[.!?]+/g) || [narr];
+  const short = sentences.slice(0, 3).join(' ').trim();
+  document.getElementById('res-narrative').innerHTML = short ? `<p>${esc(short)}</p>` : '';
+
+  // Sources
+  const sources = data.sources_fetched || [];
+  document.getElementById('res-sources').innerHTML = sources.map(s =>
+    `<a href="${esc(s.url)}" target="_blank"
+      class="source-pill ${s.type === 'journal' ? 'source-journal' : 'source-clinical'} flex items-center gap-1 no-underline hover:opacity-80 transition-opacity">
+      ${s.type === 'journal' ? '📄' : '🏥'} ${esc(s.name)}${s.pmid ? ` PMID:${s.pmid}` : ''}
+    </a>`
+  ).join('');
+}
+
+// Override openResearch to auto-run if no cached data
+const _openResearch = openResearch;
+function openResearch() {
+  if (!selectedPatient) return;
+  document.getElementById('research-panel').classList.remove('hidden');
+  document.getElementById('research-panel').scrollIntoView({behavior:'smooth', block:'nearest'});
+  if (selectedPatient._researchData) {
+    renderResearch(selectedPatient._researchData);
+    document.getElementById('research-rerun-btn').classList.remove('hidden');
+  } else {
+    runResearch();
+  }
+}
 
 // ─── Utility ──────────────────────────────────────────────────────────────────
 function esc(s) {

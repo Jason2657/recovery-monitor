@@ -1,6 +1,21 @@
+
+# Arize / Phoenix — observability tracing + the self-correction loop.
+# Core
+# Fetch.ai — the agents as real message-passing uAgents
+# Web app (FastAPI + SSE + Deepgram voice)
+# Web research (Browserbase browser automation + PubMed) — HTML parsing + browser
+# arize-phoenix-otel provides phoenix.otel.register; the openinference
+# instrumentor auto-traces Anthropic calls. Install the full `arize-phoenix`
+# package and run `phoenix serve` to view traces in the local UI.
 anthropic>=0.44.0
-rich>=13.7.0
-python-dotenv>=1.0.0
+arize-phoenix-otel>=0.6.0
+beautifulsoup4>=4.12.0
 fastapi>=0.115.0
-uvicorn>=0.32.0
 httpx>=0.27.0
+openinference-instrumentation-anthropic>=0.1.6
+playwright>=1.40.0
+pydantic>=2.0.0
+python-dotenv>=1.0.0
+rich>=13.7.0
+uagents>=0.12.0
+uvicorn>=0.32.0

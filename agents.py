@@ -8,11 +8,17 @@ import re
 import time
 import os
 import datetime
+import concurrent.futures
 import anthropic
 
 from patient_data import CLINICAL_KNOWLEDGE_BASE
 
-MODEL = "claude-opus-4-8"
+# Sponsor layers (additive; each degrades gracefully if its deps are absent).
+import config
+from config import MODEL
+from observability import tracing, evaluator
+from band.adapter import get_band_room
+from band.audit import AuditLog
 
 
 # ─── API helpers ──────────────────────────────────────────────────────────────
@@ -150,22 +156,42 @@ def run_signal_agent(current_readings: dict, patient_profile: dict, client) -> d
         "You are a clinical signal monitoring agent in a post-discharge surveillance system. "
         "Analyze vital signs and flag acute anomalies. Be clinically precise — cite specific thresholds. "
         "Tailor your interpretation to the patient's primary condition (CHF, post-surgical, COPD, etc.). "
+        "Focus ONLY on live physiological signals: HR, SpO2, respiratory rate, temperature, blood pressure, "
+        "and sleep/movement data. Do NOT flag weight or fluid retention findings in acute_alerts or "
+        "borderline_concerns — weight trends belong to the Trend Agent. "
+        "The summary should be a concise interpretation of the current live vitals and sleep data only. "
         "Return valid JSON only."
     )
+    # Pull live sensor values if provided (from the SSE stream feed)
+    live = current_readings.get("_live", {})
+    live_hr    = live.get("hr",   current_readings.get("hr_resting_bpm", "N/A"))
+    live_spo2  = live.get("spo2", current_readings.get("spo2_pct", "N/A"))
+    live_rr    = live.get("rr",   current_readings.get("rr_breaths_per_min", "N/A"))
+    live_temp  = live.get("temp", current_readings.get("temp_c", "N/A"))
+    live_sbp   = live.get("sbp",  current_readings.get("systolic_bp", "N/A"))
+    live_dbp   = live.get("dbp",  current_readings.get("diastolic_bp", "N/A"))
+    live_label = "(live sensor)" if live else "(last recorded)"
+
     user = f"""Analyze Day {current_readings['day']} vital signs for:
 Patient: {patient_profile['name']}, {patient_profile['age']}yo {patient_profile['sex']}
 Diagnosis: {patient_profile['diagnosis']}
 Primary condition context: {condition}
+Medications: {', '.join(patient_profile.get('medications', []))}
 Baseline HR: {patient_profile['baseline_hr_bpm']} bpm | Baseline SpO2: {patient_profile['baseline_spo2_pct']}%
 
-TODAY'S READINGS:
-  HR (resting): {current_readings['hr_resting_bpm']} bpm
-  SpO2: {current_readings['spo2_pct']}%
-  Respiratory rate: {current_readings['rr_breaths_per_min']} breaths/min
-  Temperature: {current_readings['temp_c']}°C
-  Blood pressure: {current_readings['systolic_bp']}/{current_readings['diastolic_bp']} mmHg
+CURRENT VITALS {live_label}:
+  HR (resting): {live_hr} bpm
+  SpO2: {live_spo2}%
+  Respiratory rate: {live_rr} breaths/min
+  Temperature: {live_temp}°C
+  Blood pressure: {live_sbp}/{live_dbp} mmHg
   Weight: {current_readings['weight_lbs']} lbs (baseline {patient_profile['baseline_weight_lbs']} lbs)
-  Steps: {current_readings['steps']} | Sleep interruptions: {current_readings['sleep_interruptions']}
+  Steps: {current_readings['steps']}
+
+SLEEP DATA (nighttime sensor):
+  Sleep interruptions (recorded): {current_readings['sleep_interruptions']}
+  Light-on wake events (live photoresistor): {current_readings.get('light_wake_count', 0)}
+  Note: light >200 lux = dark/asleep; ≤200 lux = light on/awake. Wakes counted only after first dark period.
 
 PRE-COMPUTED NEWS2:
   Total: {news2['total']}/15 — {news2['risk']} Risk
@@ -184,6 +210,14 @@ Return JSON ONLY:
 
     result = _parse_json(_call(client, system, user, max_tokens=1500))
     result["_news2"] = news2
+    result["_vitals"] = {
+        "hr":   live_hr,
+        "rr":   live_rr,
+        "sbp":  live_sbp,
+        "dbp":  live_dbp,
+        "sleep_interruptions": current_readings.get("sleep_interruptions", 0),
+        "light_wake_count":    current_readings.get("light_wake_count", 0),
+    }
     return result
 
 
@@ -276,9 +310,11 @@ Return JSON ONLY:
     return _parse_json(_call(client, system, user, max_tokens=2000))
 
 
-def run_knowledge_agent(signal_out: dict, trend_out: dict, self_report_out: dict, client) -> dict:
+def run_knowledge_agent(signal_out: dict, trend_out: dict, self_report_out: dict,
+                        client, web_research: dict = None, patient_profile: dict = None) -> dict:
     news2 = signal_out.get("_news2", {})
     trends = trend_out.get("_trends", {})
+    meds = patient_profile.get("medications", []) if patient_profile else []
 
     state = f"""
 SIGNAL: {signal_out.get('summary', 'N/A')} [Severity: {signal_out.get('severity', '?')}]
@@ -293,13 +329,25 @@ KEY METRICS:
   Weight change: {trends.get('weight_change_lbs_7days', '?')} lbs
   Activity decline: {trends.get('steps_decline_pct', '?')}%
   Red flag phrases: {self_report_out.get('red_flag_phrases', [])}
+
+CURRENT MEDICATIONS: {', '.join(meds) if meds else 'None listed'}
 """
+
+    # Inject live web research if available
+    lit_context = ""
+    if web_research and not web_research.get("error"):
+        from web_research import format_for_agents
+        lit_context = "\n\n" + format_for_agents(web_research)
 
     system = (
         "You are a medical knowledge retrieval agent (RAG). "
-        "Apply the provided clinical knowledge base to the patient state. "
-        "Always cite specific criteria by name and threshold. Retrieve relevant guidelines "
-        "for the most applicable condition. Return valid JSON only."
+        "Apply the provided clinical knowledge base AND any literature research context to the patient state. "
+        "Always cite specific criteria by name and threshold. When literature context is present, "
+        "cross-reference it with the built-in guidelines and flag any additional risks it reveals. "
+        "IMPORTANT: Always consider the patient's current medications — check for relevant drug effects, "
+        "drug-condition interactions (e.g. diuretics in CHF, beta-blockers masking tachycardia), "
+        "and whether medication adherence issues may explain any reported symptoms. "
+        "Return valid JSON only."
     )
     user = f"""Apply clinical guidelines to this post-discharge patient state.
 
@@ -307,9 +355,12 @@ CURRENT STATE:
 {state}
 
 CLINICAL KNOWLEDGE BASE:
-{json.dumps(CLINICAL_KNOWLEDGE_BASE, indent=2)}
+{json.dumps(CLINICAL_KNOWLEDGE_BASE, indent=2)}{lit_context}
 
 Identify which specific criteria are triggered. Be precise — state the threshold and whether it is met.
+If literature research context is provided above, incorporate its complication thresholds and red flags.
+For medications: note any drug-condition interactions, expected medication effects on vitals, and
+whether current readings could reflect medication side effects vs true deterioration.
 
 Return JSON ONLY:
 {{
@@ -321,57 +372,107 @@ Return JSON ONLY:
       "clinical_significance": "why this matters"
     }}
   ],
+  "medication_considerations": [
+    {{
+      "medication": "drug name",
+      "relevant_effect": "how this drug affects vital sign interpretation or risk",
+      "interaction_flag": "any drug-condition concern"
+    }}
+  ],
   "red_flags_triggered": ["specific red flag WITH supporting data"],
   "red_flags_approaching": ["not yet met but trending toward"],
   "most_applicable_guideline": "which guideline is most relevant and why",
-  "summary": "3-4 sentence evidence-based assessment citing specific guidelines",
+  "summary": "3-4 sentence evidence-based assessment citing specific guidelines and noting medication context",
   "severity": "low|medium|high|critical"
 }}"""
 
-    return _parse_json(_call(client, system, user, max_tokens=2500))
+    return _parse_json(_call(client, system, user, max_tokens=4000))
 
 
 def run_skeptic_agent(signal_out: dict, trend_out: dict, self_report_out: dict,
                       knowledge_out: dict, patient_profile: dict, client) -> dict:
     concerns = f"""
-SIGNAL: Alerts={signal_out.get('acute_alerts', [])} | Borderline={signal_out.get('borderline_concerns', [])}
+SIGNAL ALERTS: {signal_out.get('acute_alerts', [])}
+BORDERLINE: {signal_out.get('borderline_concerns', [])}
 NEWS2: {signal_out.get('news2_score', '?')}/15 ({signal_out.get('news2_risk_level', '?')} risk)
+VITAL SUMMARY: {signal_out.get('summary', '')}
 TRENDS: {trend_out.get('concerning_trends', [])}
-SELF-REPORT: {self_report_out.get('red_flag_phrases', [])} | Trajectory: {self_report_out.get('symptom_trajectory', '?')}
-GUIDELINES: {knowledge_out.get('red_flags_triggered', [])}
+TREND SUMMARY: {trend_out.get('summary', '')}
+SELF-REPORT QUOTES: {self_report_out.get('red_flag_phrases', [])}
+SELF-REPORT TRAJECTORY: {self_report_out.get('symptom_trajectory', '?')}
+GUIDELINES TRIGGERED: {knowledge_out.get('red_flags_triggered', [])}
+GUIDELINES APPROACHING: {knowledge_out.get('red_flags_approaching', [])}
 PATIENT MEDS: {', '.join(patient_profile['medications'])}
+CONDITION: {patient_profile.get('primary_condition', 'general')}
+AGE/SEX: {patient_profile.get('age', '?')}yo {patient_profile.get('sex', '?')}
 """
 
     system = (
-        "You are the Adversarial Skeptic Agent in a clinical AI system. "
-        "YOUR ROLE: Argue AGAINST premature escalation to prevent alert fatigue. "
-        "Find the most compelling benign explanations. Consider medication effects, "
-        "normal post-discharge variation, measurement artifact, patient baseline. "
-        "Be intellectually honest — rate argument strength. Note where skepticism fails. "
+        "You are the Adversarial Skeptic Agent in a multi-agent clinical AI debate system. "
+        "Your job: RIGOROUSLY argue against premature escalation to prevent alarm fatigue. "
+        "For each concerning finding, you MUST run a structured internal debate: "
+        "state the strongest possible benign hypothesis, then honestly and specifically dismantle it. "
+        "Do not be lazy — a weak hypothesis followed by a weak rebuttal is useless. "
+        "Force yourself to find the most medically plausible benign explanation (medication effect, "
+        "post-discharge recovery curve, diurnal variation, measurement artifact, anxiety amplification, "
+        "deconditioning, sleep disruption, dietary salt, environment). Then tear it apart using "
+        "the actual data. Be specific with numbers. "
+        "Your output feeds the final reconciler — it needs substance to weigh against the clinical signals. "
         "Return valid JSON only."
     )
-    user = f"""Challenge these clinical concerns. Find the best benign explanations.
+    user = f"""Run a rigorous structured debate on each concerning clinical finding.
+For every finding: argue it away, then rebut your own argument with the actual evidence.
 
-CONCERNING FINDINGS:
+FINDINGS TO DEBATE:
 {concerns}
+
+DEBATE RULES:
+- Hypothesis must be medically specific (cite mechanism, drug, or physiology — not vague)
+- Rebuttal must cite specific numbers/data from the findings above
+- Be intellectually honest: rate how well your hypothesis actually holds up
+- Cover at least 3-4 distinct findings
 
 Return JSON ONLY:
 {{
-  "counterarguments": [
+  "debate": [
     {{
-      "finding": "the concern being challenged",
-      "benign_explanation": "most compelling benign alternative",
-      "argument_strength": "strong|moderate|weak",
-      "what_would_confirm_benign": "evidence that would support this explanation"
+      "finding": "specific concern being debated (e.g. 'SpO2 91% — NEWS2 red flag')",
+      "hypothesis": "most compelling benign explanation — 2-3 sentences, cite mechanism or drug effect",
+      "evidence_for_hypothesis": "what in the data supports this benign view",
+      "rebuttal": "why this hypothesis fails — 2-3 sentences, cite specific numbers that contradict it",
+      "verdict": "hypothesis_holds|hypothesis_weakened|hypothesis_rejected",
+      "hypothesis_strength": "strong|moderate|weak"
     }}
   ],
-  "strongest_benign_case": "the single most compelling reason NOT to escalate",
-  "overall_benign_narrative": "most plausible non-alarming explanation for the overall picture",
+  "strongest_hypothesis": "the single best reason across all findings not to escalate — 1-2 sentences",
+  "strongest_hypothesis_debunked": "why even this best case ultimately fails given the full picture — 1-2 sentences",
+  "overall_benign_narrative": "most coherent non-alarming explanation for everything together — 2-3 sentences",
+  "overall_verdict": "escalation_warranted|watchful_wait|no_action",
   "skeptic_confidence": "low|moderate|high",
-  "where_skepticism_fails": "which findings genuinely cannot be explained away, and why?"
+  "where_skepticism_fails": "which findings genuinely cannot be explained away and precisely why — be specific"
 }}"""
 
-    return _parse_json(_call(client, system, user, max_tokens=2000))
+    result = _parse_json(_call(client, system, user, max_tokens=5000))
+    if not result.get("strongest_hypothesis"):
+        result["strongest_hypothesis"] = result.pop("strongest_benign_case", "No compelling benign case — findings converge on clinical deterioration.")
+    if not result.get("debate") and result.get("counterarguments"):
+        # Migrate old format
+        result["debate"] = [
+            {
+                "finding": c.get("finding", ""),
+                "hypothesis": c.get("benign_explanation", ""),
+                "evidence_for_hypothesis": c.get("what_would_confirm_benign", ""),
+                "rebuttal": "See where_skepticism_fails.",
+                "verdict": "hypothesis_weakened",
+                "hypothesis_strength": c.get("argument_strength", "weak"),
+            }
+            for c in result["counterarguments"]
+        ]
+    if not result.get("where_skepticism_fails"):
+        result["where_skepticism_fails"] = "Convergent signals from multiple sources reduce likelihood of benign explanation."
+    if not result.get("overall_benign_narrative"):
+        result["overall_benign_narrative"] = "N/A — multi-source signal convergence."
+    return result
 
 
 def run_reconciler_agent(signal_out: dict, trend_out: dict, self_report_out: dict,
@@ -389,48 +490,137 @@ Weight Δ={trends.get('weight_change_lbs_7days','?')} lbs | Activity −{trends.
 Patient red flags: {self_report_out.get('red_flag_phrases', [])}
 Trend convergence: {trend_out.get('trend_convergence', 'N/A')}
 """
+    debate_summary = "; ".join(
+        f"{r.get('finding','?')} → {r.get('verdict','?')}"
+        for r in (skeptic_out.get("debate") or [])
+    )
     evidence_against = f"""
 AGAINST: {skeptic_out.get('overall_benign_narrative', '')}
-Strongest benign case: {skeptic_out.get('strongest_benign_case', '')}
+Strongest benign case: {skeptic_out.get('strongest_hypothesis', skeptic_out.get('strongest_benign_case', ''))}
+Skeptic verdict: {skeptic_out.get('overall_verdict', 'N/A')}
 Skeptic confidence: {skeptic_out.get('skeptic_confidence', 'N/A')}
+Debate outcomes: {debate_summary or 'N/A'}
 Where skepticism fails: {skeptic_out.get('where_skepticism_fails', '')}
 """
+
+    from patient_data import CLINICAL_KNOWLEDGE_BASE
+    escalation_kb = CLINICAL_KNOWLEDGE_BASE.get("escalation_protocol", {})
+    condition = patient_profile.get("primary_condition", "general")
+    condition_overrides = escalation_kb.get("condition_overrides", {}).get(condition, [])
+
+    # Count data quality for upstream agents to inform confidence level
+    upstream_parse_errors = sum(1 for o in [signal_out, trend_out, self_report_out, knowledge_out, skeptic_out]
+                                if o.get("_parse_error"))
+    data_days = len([r for r in patient_profile.get("sensor_history_ref", []) if r]) if "sensor_history_ref" in patient_profile else 7
 
     system = (
         "You are the Reconciler/Judge Agent — final arbiter of clinical escalation. "
         "Weigh ALL evidence from 5 independent data streams against the Skeptic's best arguments. "
         "Key principle: convergent evidence from MULTIPLE INDEPENDENT streams cannot all be coincidental "
-        "benign explanations simultaneously. Show your work explicitly. Return valid JSON only."
+        "benign explanations simultaneously. Show your work explicitly.\n\n"
+        "ESCALATION PROTOCOL (static clinical memory — apply to every assessment):\n"
+        "LEVEL 0 (Routine): NEWS2 0-2, stable trends → standard monitoring, scheduled follow-up only.\n"
+        "LEVEL 1 (Enhanced): NEWS2 3-4 OR single mild trend → it would be appropriate for patient to "
+        "contact care team within 24-48 hours.\n"
+        "LEVEL 2 (Urgent): NEWS2 5-6 OR multiple converging trends, CHF weight >5 lbs/week, "
+        "COPD rescue inhaler escalation → it would be appropriate to notify attending physician within 2-4 hours.\n"
+        "LEVEL 3 (Emergency): NEWS2 7+, SpO2 <88%, HR >130 or <40, systolic <90, acute chest pain, "
+        "severe dyspnea → it would be appropriate to activate emergency medical services (911) immediately.\n"
+        f"CONDITION-SPECIFIC OVERRIDES for {condition.upper()}: {'; '.join(condition_overrides)}\n\n"
+        "CONFIDENCE DEFINITION — score your own certainty:\n"
+        "  high   = all 5 upstream agents returned complete data, signals are internally consistent, "
+        "clear convergence across independent streams, no data gaps in sensor history.\n"
+        "  medium = 1-2 upstream agents had parse issues OR mild contradictions between agent outputs "
+        "OR ≤5 days of sensor history OR signals only partially converge.\n"
+        "  low    = 3+ upstream agents failed/had parse errors OR major contradictions OR <4 days data "
+        "OR signals completely diverge — assessment is a best-effort estimate under uncertainty.\n\n"
+        "IMPORTANT: The escalation_recommendation field must state what action 'would be appropriate' — "
+        "this system does NOT take action itself. All clinical decisions remain with the care team.\n"
+        "Return valid JSON only. Every field is required — never omit risk_score or risk_level."
     )
+    upstream_quality = f"Upstream agent errors: {upstream_parse_errors}/5 | Data days available: {days_post_discharge}"
     user = f"""Reconcile all evidence for {patient_profile['name']}, Day {days_post_discharge} post-{patient_profile['diagnosis']}.
 
 {evidence_for}
 {evidence_against}
 
-Weigh convergent evidence against skeptic counterarguments.
+DATA QUALITY: {upstream_quality}
 
-Return JSON ONLY:
+Weigh convergent evidence against skeptic counterarguments. You MUST assign a concrete risk_score (0-100) and risk_level — never leave these as null, 0 by default, or 'unknown'. Even with limited data, make a calibrated estimate and note uncertainty in confidence and rationale.
+
+Return JSON ONLY (all fields required):
 {{
-  "risk_score": <integer 0-100>,
+  "risk_score": <integer 1-100, never 0 unless truly no risk signal at all>,
   "risk_level": "low|moderate|high|critical",
-  "primary_drivers": ["driver 1 with supporting numbers", "driver 2 with supporting numbers"],
+  "primary_drivers": ["specific driver with supporting numbers", "second driver with numbers"],
   "mitigating_factors": ["valid skeptic point that appropriately reduced the score"],
   "convergence_argument": "why simultaneous trends across 5 independent streams outweigh individual benign explanations",
   "skeptic_rebuttal": "specific response to the skeptic's strongest argument",
-  "confidence": "low|medium|high",
-  "recommended_action": "specific clinical action",
+  "confidence": "low|medium|high (per the definitions above)",
+  "recommended_action": "specific clinical action in 1-2 sentences",
   "time_sensitivity": "immediately|within_4h|within_24h|within_48h|routine",
-  "rationale": "4-6 sentence explicit reasoning chain connecting evidence to risk score"
+  "escalation_level": <integer 0-3 matching the escalation protocol levels above>,
+  "escalation_recommendation": "Full text starting with 'it would be appropriate to...' — do NOT claim the AI takes action",
+  "rationale": "4-6 sentence explicit reasoning chain: data quality → signal convergence → score justification → confidence rationale"
 }}"""
 
-    return _parse_json(_call(client, system, user, max_tokens=2500))
+    result = _parse_json(_call(client, system, user, max_tokens=4000))
+
+    # Safety net: if parse failed or critical fields are missing, flag it clearly
+    if result.get("_parse_error") or result.get("risk_score") is None:
+        result["confidence"] = "low"
+        result["_assessment_note"] = "Parse error or missing fields — re-run analysis for accurate results"
+        if "risk_score" not in result or result.get("risk_score") is None:
+            result["risk_score"] = 0
+        if "risk_level" not in result:
+            result["risk_level"] = "unknown"
+
+    return result
 
 
-def run_brief_agent(reconciler_out: dict, patient_profile: dict, days_post_discharge: int, client) -> str:
+def run_brief_agent(reconciler_out: dict, patient_profile: dict, days_post_discharge: int,
+                    client, web_research: dict = None) -> str:
+    # Build optional research context block for the brief
+    lit_section = ""
+    if web_research and not web_research.get("error"):
+        flags = (web_research.get("red_flags") or [])[:5]
+        highlights = (web_research.get("evidence_highlights") or [])[:2]
+        sources = [s.get("name","") for s in (web_research.get("sources_fetched") or [])]
+        lit_section = f"""
+LITERATURE-BASED CONTEXT (incorporated from {', '.join(sources)}):
+{web_research.get('diagnosis_context', '')}
+
+Evidence-based red flags for this diagnosis:
+{chr(10).join(f'  • {f}' for f in flags)}
+
+Key findings:
+{chr(10).join(f'  [{e.get("source","?")}]: {e.get("key_finding","")}' for e in highlights)}
+
+Patient-specific risk narrative:
+{web_research.get('tailored_risk_narrative', '')[:500]}
+"""
+
+    assessment_note = reconciler_out.get("_assessment_note", "")
+    note_block = f"\n⚠ ASSESSMENT NOTE: {assessment_note}" if assessment_note else ""
+
     system = (
         "You are a Clinical Brief Agent. Convert AI risk assessments into SBAR format — "
         "the standard healthcare handoff format. Write for a care coordinator who needs to act. "
-        "Be specific: include numbers, dates, and exact action items with timeframes."
+        "Be specific: include numbers, dates, exact action items with timeframes. "
+        "When literature research context is provided, weave it into the brief to make "
+        "recommendations evidence-based and specific to this patient's diagnosis.\n\n"
+        "FORMATTING RULES — follow exactly:\n"
+        "1. Each section header is on its own line: **SITUATION**, **BACKGROUND**, **ASSESSMENT**, **RECOMMENDATION**\n"
+        "2. Section content immediately follows the header with one blank line between them\n"
+        "3. RECOMMENDATION items use this EXACT format — number, period, space, timeframe colon, action — ALL ON ONE LINE:\n"
+        "   1. Within 24 hours: [specific action referencing patient name and exact values]\n"
+        "   2. Daily: [monitoring action with threshold]\n"
+        "   3. Within 48 hours: [follow-up action]\n"
+        "   4. If [condition]: [contingency action]\n"
+        "   5. At next visit: [assessment action]\n"
+        "4. Do NOT put the number on one line and the content on the next line\n"
+        "5. Do NOT put the timeframe on one line and the action on the next line\n"
+        "6. The footnote line goes after the --- separator"
     )
     user = f"""Create an SBAR clinical brief.
 
@@ -439,7 +629,7 @@ PATIENT:
   Dx: {patient_profile['diagnosis']}
   Discharged: {patient_profile['discharge_date']} (Day {days_post_discharge} today)
   Meds: {', '.join(patient_profile['medications'])}
-  Baseline risk: {patient_profile['30day_readmission_risk']}
+  Baseline risk: {patient_profile['30day_readmission_risk']}{note_block}
 
 AI RISK ASSESSMENT:
   Score: {reconciler_out.get('risk_score', '?')}/100 — {str(reconciler_out.get('risk_level', '?')).upper()}
@@ -449,27 +639,31 @@ AI RISK ASSESSMENT:
   Action: {reconciler_out.get('recommended_action', '?')}
   Time sensitivity: {str(reconciler_out.get('time_sensitivity', '?')).replace('_', ' ').upper()}
   Rationale: {reconciler_out.get('rationale', '?')}
-
-Use EXACTLY this format:
+{lit_section}
+Write the SBAR using EXACTLY this structure. RECOMMENDATION items must be on a single line each:
 
 **SITUATION**
 [1-2 sentences: who, what concern, why reaching out now]
 
 **BACKGROUND**
-[2-3 sentences: relevant clinical context, key worsening metrics with numbers]
+[2-3 sentences: relevant clinical context, key worsening metrics with numbers, reference literature findings where relevant]
 
 **ASSESSMENT**
-[3-4 sentences: AI assessment with specific data points, risk score, top drivers]
+[3-4 sentences: AI assessment with specific data points, risk score, top drivers, cite any literature-based thresholds that are triggered]
 
 **RECOMMENDATION**
-[Numbered list of 4-5 specific action items with timeframes]
+1. Within [timeframe]: [action specific to this patient with exact values]
+2. [Timeframe]: [second action with threshold]
+3. [Timeframe]: [third action]
+4. If [condition occurs]: [contingency action]
+5. At [timeframe]: [follow-up assessment]
 
 ---
-*PostCare AI Monitor | {patient_profile['id']} | 2026-06-20 | {MODEL}*"""
+*Nightingale | {patient_profile['id']} | 2026-06-20 | {MODEL}*"""
 
     with client.messages.stream(
         model=MODEL,
-        max_tokens=1500,
+        max_tokens=3000,
         thinking={"type": "adaptive"},
         system=system,
         messages=[{"role": "user", "content": user}],
@@ -482,6 +676,7 @@ Use EXACTLY this format:
 def extract_brief(agent_id: str, result) -> dict:
     """Pull display-critical fields out of each agent's full output."""
     if agent_id == "signal":
+        v = result.get("_vitals", {})
         return {
             "news2_score": result.get("news2_score"),
             "news2_risk": result.get("news2_risk_level"),
@@ -489,6 +684,12 @@ def extract_brief(agent_id: str, result) -> dict:
             "summary": result.get("summary", ""),
             "alerts": (result.get("acute_alerts") or [])[:3],
             "concerns": (result.get("borderline_concerns") or [])[:3],
+            "hr":  v.get("hr"),
+            "rr":  v.get("rr"),
+            "sbp": v.get("sbp"),
+            "dbp": v.get("dbp"),
+            "sleep_interruptions": v.get("sleep_interruptions", 0),
+            "light_wake_count":    v.get("light_wake_count", 0),
         }
     if agent_id == "trend":
         t = result.get("_trends", {})
@@ -509,18 +710,25 @@ def extract_brief(agent_id: str, result) -> dict:
             "red_flags": (result.get("red_flag_phrases") or [])[:3],
         }
     if agent_id == "knowledge":
+        raw_summary = result.get("summary", "")
+        # If _parse_json fell back to raw text, "summary" is JSON — strip it
+        safe_summary = "" if (result.get("_parse_error") or str(raw_summary).lstrip().startswith(("{", "["))) else raw_summary
         return {
             "severity": result.get("severity", "unknown"),
-            "summary": result.get("summary", ""),
+            "summary": safe_summary,
             "triggered": (result.get("red_flags_triggered") or [])[:3],
             "approaching": (result.get("red_flags_approaching") or [])[:2],
+            "most_applicable": result.get("most_applicable_guideline", ""),
+            "parse_error": bool(result.get("_parse_error")),
         }
     if agent_id == "skeptic":
         return {
-            "strongest_case": result.get("strongest_benign_case", ""),
+            "strongest_case": result.get("strongest_hypothesis", result.get("strongest_benign_case", "")),
+            "strongest_case_debunked": result.get("strongest_hypothesis_debunked", ""),
             "where_fails": result.get("where_skepticism_fails", ""),
+            "overall_verdict": result.get("overall_verdict", ""),
             "confidence": result.get("skeptic_confidence", "unknown"),
-            "top_counterarg": (result.get("counterarguments") or [{}])[0],
+            "debate": (result.get("debate") or [])[:5],
         }
     if agent_id == "reconciler":
         return {
@@ -532,6 +740,8 @@ def extract_brief(agent_id: str, result) -> dict:
             "time_sensitivity": result.get("time_sensitivity", ""),
             "rationale": result.get("rationale", ""),
             "skeptic_rebuttal": result.get("skeptic_rebuttal", ""),
+            "escalation_level": result.get("escalation_level", 0),
+            "escalation_recommendation": result.get("escalation_recommendation", ""),
         }
     if agent_id == "brief":
         return {"text": result if isinstance(result, str) else ""}
@@ -540,16 +750,39 @@ def extract_brief(agent_id: str, result) -> dict:
 
 # ─── Full pipeline orchestrator ───────────────────────────────────────────────
 
-def run_full_pipeline(patient_data: dict, client, callbacks: dict = None, log_dir: str = "logs") -> tuple:
-    """
-    Run all 7 agents sequentially, calling callbacks after each step,
-    saving the full reasoning to a JSON log file.
+_ANALYSIS_LABELS = {"signal": "Signal Agent", "trend": "Trend Agent", "self_report": "Self-Report NLP"}
+
+
+def run_full_pipeline(
+    patient_data: dict,
+    client,
+    callbacks: dict = None,
+    log_dir: str = "logs",
+    *,
+    use_mesh: bool = False,
+    web_research: dict = None,
+) -> tuple:
+    """Run the governed 7-agent pipeline, saving full reasoning to a JSON log.
+
+    Sponsor layers woven in (each degrades gracefully):
+      * Arize/Phoenix — the whole run is a trace; each agent step is a span, and
+        Claude calls are auto-instrumented. A self-correction loop nudges
+        ``RISK_THRESHOLD`` when the patient has a ground-truth label.
+      * Band — the Skeptic<->Reconciler round runs inside a governed BandRoom
+        (one bounded round, append-only audit), followed by a human-in-the-loop
+        escalation gate (verified-authority check).
+      * Fetch.ai — with ``use_mesh=True`` the three independent analysis agents
+        run as real uAgents in a Bureau; the Escalation uAgent is the output-path
+        worker. The web SSE path leaves ``use_mesh=False`` for low latency.
 
     Args:
         patient_data: dict with 'profile', 'sensor_history', 'self_reports'
         client: anthropic.Anthropic instance
         callbacks: {'on_start': fn(agent_id, label), 'on_complete': fn(agent_id, label, brief, elapsed)}
         log_dir: directory to write reasoning log
+        use_mesh: route parallel analysis through the Fetch.ai uAgents mesh
+        web_research: optional structured research dict from web_research.research_patient()
+            — injected into the knowledge (RAG) agent and the SBAR brief when present
 
     Returns:
         (full_log dict, log_file_path string)
@@ -562,53 +795,221 @@ def run_full_pipeline(patient_data: dict, client, callbacks: dict = None, log_di
     reports = patient_data["self_reports"]
     current = history[-1]
     days = len(history)
+    patient_id = profile.get("id", "unknown")
+
+    # Arize/Phoenix: stand up the trace boundary once (no-op without deps/keys).
+    tracing.init_tracing()
 
     full_log = {
-        "patient_id": profile.get("id", "unknown"),
+        "patient_id": patient_id,
         "patient_name": profile.get("name", "Unknown"),
         "analysis_timestamp": datetime.datetime.now().isoformat(),
         "model": MODEL,
+        "mesh": False,  # set True only if the Fetch mesh actually ran (not just requested)
         "agents": {},
     }
 
-    def step(agent_id, label, fn, *args):
-        on_start(agent_id, label)
-        t0 = time.time()
-        result = fn(*args)
-        elapsed = round(time.time() - t0, 1)
+    def record(agent_id, label, result, elapsed):
         brief = extract_brief(agent_id, result)
-        on_complete(agent_id, label, brief, elapsed)
         full_log["agents"][agent_id] = {
             "label": label,
             "elapsed_seconds": elapsed,
             "brief": brief,
             "full_output": result if not isinstance(result, str) else {"text": result},
         }
+        return brief
+
+    def step(agent_id, label, fn, *args):
+        on_start(agent_id, label)
+        t0 = time.time()
+        with tracing.span(f"agent.{agent_id}"):
+            result = fn(*args)
+        elapsed = round(time.time() - t0, 1)
+        brief = record(agent_id, label, result, elapsed)
+        on_complete(agent_id, label, brief, elapsed)
         return result
 
-    signal_out = step("signal", "Signal Agent", run_signal_agent, current, profile, client)
-    trend_out = step("trend", "Trend Agent", run_trend_agent, history, profile, client)
-    self_report_out = step("self_report", "Self-Report NLP", run_self_report_agent, reports, client)
-    knowledge_out = step("knowledge", "Medical Knowledge (RAG)", run_knowledge_agent,
-                          signal_out, trend_out, self_report_out, client)
-    skeptic_out = step("skeptic", "Adversarial Skeptic", run_skeptic_agent,
-                        signal_out, trend_out, self_report_out, knowledge_out, profile, client)
-    reconciler_out = step("reconciler", "Reconciler / Judge", run_reconciler_agent,
-                           signal_out, trend_out, self_report_out, knowledge_out, skeptic_out,
-                           profile, days, client)
-    sbar_text = step("brief", "Clinical Brief (SBAR)", run_brief_agent,
-                      reconciler_out, profile, days, client)
+    with tracing.span("pipeline", patient_id=patient_id, mesh=bool(use_mesh)):
+        trace_id = tracing.current_trace_id()
 
+        # --- parallel analysis: 3 independent workers run concurrently --------
+        # Prefer Fetch.ai mesh (real uAgents in a Bureau) when use_mesh=True;
+        # fall back to a ThreadPoolExecutor fan-out (still parallel, no mesh overhead).
+        analyses = None
+        if use_mesh:
+            try:
+                from mesh import fetch_mesh
+                analyses = fetch_mesh.run_parallel_analysis_via_mesh(
+                    patient_data, client, {"on_start": on_start, "on_complete": on_complete}
+                )
+                full_log["mesh_addresses"] = fetch_mesh.mesh_status()
+                for sid in ("signal", "trend", "self_report"):
+                    record(sid, _ANALYSIS_LABELS[sid], analyses[sid], None)
+                full_log["mesh"] = True
+            except Exception as exc:
+                full_log["mesh_error"] = str(exc)
+                analyses = None
+
+        if analyses is None:
+            # Fan-out: all 3 analysis agents fire simultaneously
+            on_start("signal",      "Signal Agent")
+            on_start("trend",       "Trend Agent")
+            on_start("self_report", "Self-Report NLP")
+            with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+                f_signal      = pool.submit(run_signal_agent,      current, profile, client)
+                f_trend       = pool.submit(run_trend_agent,       history, profile, client)
+                f_self_report = pool.submit(run_self_report_agent, reports, client)
+                t0 = time.time()
+                signal_out      = f_signal.result()
+                trend_out       = f_trend.result()
+                self_report_out = f_self_report.result()
+            elapsed_parallel = round(time.time() - t0, 1)
+            for sid, res in (("signal", signal_out), ("trend", trend_out), ("self_report", self_report_out)):
+                brief = record(sid, _ANALYSIS_LABELS[sid], res, elapsed_parallel)
+                on_complete(sid, _ANALYSIS_LABELS[sid], brief, elapsed_parallel)
+        else:
+            signal_out, trend_out, self_report_out = (
+                analyses["signal"], analyses["trend"], analyses["self_report"]
+            )
+
+        # --- medical knowledge (RAG) — depends on all three analyses ----------
+        # Only inject the compact synthesis from web_research (not raw page text)
+        # to keep RAG token spend low.
+        knowledge_out = step("knowledge", "Medical Knowledge (RAG)", run_knowledge_agent,
+                             signal_out, trend_out, self_report_out, client, web_research, profile)
+
+        # --- Band room: governed Skeptic <-> Reconciler deliberation (audited) ---
+        band = get_band_room(audit=AuditLog(echo=False))
+
+        def skeptic_call():
+            return step("skeptic", "Adversarial Skeptic", run_skeptic_agent,
+                        signal_out, trend_out, self_report_out, knowledge_out, profile, client)
+
+        def reconciler_call(skeptic_out):
+            return step("reconciler", "Reconciler / Judge", run_reconciler_agent,
+                        signal_out, trend_out, self_report_out, knowledge_out, skeptic_out,
+                        profile, days, client)
+
+        analysis_summary = {
+            "severities": {
+                k: full_log["agents"].get(k, {}).get("brief", {}).get("severity")
+                for k in ("signal", "trend", "self_report", "knowledge")
+            }
+        }
+        with tracing.span("band.deliberate"):
+            delib = band.deliberate(
+                patient_id=patient_id,
+                analysis_summary=analysis_summary,
+                skeptic_call=skeptic_call,
+                reconciler_call=reconciler_call,
+                trace_id=trace_id,
+            )
+        reconciler_out = delib.reconciler_out
+        assessment = delib.assessment
+
+        # --- human-in-the-loop escalation gate (authority check + audit) ---
+        with tracing.span("band.escalation_gate"):
+            gate = band.escalation_gate(assessment)
+
+        # --- clinician handoff (SBAR), always produced as the assessment doc ---
+        sbar_text = step("brief", "Clinical Brief (SBAR)", run_brief_agent,
+                         reconciler_out, profile, days, client, web_research)
+
+        # --- governed escalation action (Fetch.ai uAgent on the output path) ---
+        _run_escalation_step(full_log, band.audit, gate, assessment, on_start, on_complete)
+
+    # ---- top-level fields (kept UI-compatible with dev) ----
     full_log["risk_score"] = reconciler_out.get("risk_score", 0)
     full_log["risk_level"] = reconciler_out.get("risk_level", "unknown")
     full_log["sbar"] = sbar_text if isinstance(sbar_text, str) else sbar_text.get("text", "")
     full_log["recommended_action"] = reconciler_out.get("recommended_action", "")
     full_log["time_sensitivity"] = reconciler_out.get("time_sensitivity", "")
+    full_log["escalation_level"] = reconciler_out.get("escalation_level", 0)
+    full_log["escalation_recommendation"] = reconciler_out.get("escalation_recommendation", "")
+    full_log["web_research_incorporated"] = bool(web_research and not web_research.get("error"))
+    full_log["web_research_sources"] = [
+        s.get("name") for s in (web_research or {}).get("sources_fetched", [])
+    ] if web_research else []
+
+    # ---- governance + observability additions ----
+    full_log["risk_score_normalized"] = round(assessment.risk_score, 3)
+    full_log["recommend_escalation"] = assessment.recommend_escalation
+    full_log["gate_decision"] = gate.model_dump()
+    full_log["risk_threshold"] = config.get_risk_threshold()
+    full_log["trace_id"] = trace_id
+    full_log["tracing_enabled"] = tracing.is_enabled()
+    full_log["band_audit"] = band.audit.as_dicts()
+    full_log["self_correction"] = _run_correction_loop(profile, assessment)
 
     os.makedirs(log_dir, exist_ok=True)
     ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_file = os.path.join(log_dir, f"{profile.get('id', 'unknown')}_{ts}.json")
+    log_file = os.path.join(log_dir, f"{patient_id}_{ts}.json")
     with open(log_file, "w") as f:
         json.dump(full_log, f, indent=2, default=str)
 
     return full_log, log_file
+
+
+def _run_escalation_step(full_log, audit, gate, assessment, on_start, on_complete):
+    """Governed output action: the Escalation uAgent (Fetch) fires only on a
+    gated, authorized escalation; otherwise the decision is held + audited."""
+    label = "Escalation (Band gate + Fetch)"
+    on_start("escalation", label)
+    t0 = time.time()
+
+    uagent_address = None
+    try:
+        from mesh import fetch_mesh
+
+        if fetch_mesh.is_available():
+            uagent_address = fetch_mesh.escalation_uagent().address
+    except Exception:
+        uagent_address = None
+
+    if gate.escalate:
+        audit.append(
+            "escalation_agent", "handoff_delivered",
+            authority_granted=gate.authority_granted,
+            payload={"via": "fetch.uagent", "address": uagent_address,
+                     "risk_score": assessment.risk_score_100},
+        )
+    else:
+        audit.append("escalation_agent", "escalation_held", payload={"reason": gate.reason})
+
+    elapsed = round(time.time() - t0, 1)
+    brief = {
+        "escalated": gate.escalate,
+        "authority_granted": gate.authority_granted,
+        "reason": gate.reason,
+        "uagent_address": uagent_address,
+        "recommended_action": assessment.recommended_action,
+        "time_sensitivity": assessment.time_sensitivity,
+    }
+    full_log["agents"]["escalation"] = {
+        "label": label, "elapsed_seconds": elapsed, "brief": brief, "full_output": brief
+    }
+    on_complete("escalation", label, brief, elapsed)
+
+
+def _run_correction_loop(profile: dict, assessment) -> dict:
+    """One pass of the Arize self-correction loop, if ground truth is known.
+
+    The patient's ``ground_truth_escalate`` (bool) is the label; a false positive
+    raises RISK_THRESHOLD, a false negative lowers it. This is the single knob the
+    whole observability feedback loop moves.
+    """
+    truth = profile.get("ground_truth_escalate")
+    if truth is None:
+        return {"ran": False, "reason": "no ground-truth label for this patient"}
+    before = config.get_risk_threshold()
+    score = evaluator.score_decision(assessment, truth)
+    after = evaluator.adjust_threshold(assessment, truth)
+    return {
+        "ran": True,
+        "ground_truth_escalate": truth,
+        "predicted_escalate": assessment.recommend_escalation,
+        "correct": assessment.recommend_escalation == truth,
+        "calibration_score": round(score, 3),
+        "threshold_before": before,
+        "threshold_after": after,
+    }

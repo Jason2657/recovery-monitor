@@ -112,6 +112,16 @@ async def status():
     })
 
 
+@app.get("/api/mesh")
+async def mesh_info():
+    """Fetch.ai mesh status — the real uAgent addresses (no network needed)."""
+    from mesh import fetch_mesh
+    return JSONResponse({
+        "available": fetch_mesh.is_available(),
+        "agents": fetch_mesh.mesh_status(),  # [{stage, name, address}, ...]
+    })
+
+
 # ─── Routes: patients ─────────────────────────────────────────────────────────
 
 @app.get("/api/patients")
@@ -280,7 +290,7 @@ async def text_to_speech(request: Request):
 # ─── Routes: analysis pipeline (SSE) ─────────────────────────────────────────
 
 @app.get("/api/analyze/{patient_id}")
-async def analyze(patient_id: str):
+async def analyze(patient_id: str, mesh: bool = False):
     patients = all_patients()
     if patient_id not in patients:
         raise HTTPException(404, "Patient not found")
@@ -312,12 +322,27 @@ async def analyze(patient_id: str):
                 patient_data, client,
                 callbacks={"on_start": on_start, "on_complete": on_complete},
                 log_dir="logs",
+                use_mesh=mesh,
             )
             last_results[patient_id] = {
                 "risk_score": full_log.get("risk_score", 0),
                 "risk_level": full_log.get("risk_level", "unknown"),
                 "timestamp": full_log.get("analysis_timestamp", ""),
             }
+            # Sponsor surfaces: Band governance (gate + audit) and Arize observability.
+            event_queue.put({
+                "type": "governance",
+                "gate": full_log.get("gate_decision", {}),
+                "audit": full_log.get("band_audit", []),
+                "observability": {
+                    "tracing_enabled": full_log.get("tracing_enabled", False),
+                    "trace_id": full_log.get("trace_id"),
+                    "risk_threshold": full_log.get("risk_threshold"),
+                    "self_correction": full_log.get("self_correction", {}),
+                },
+                "mesh_used": full_log.get("mesh", False),
+                "mesh_addresses": full_log.get("mesh_addresses", []),
+            })
             event_queue.put({
                 "type": "pipeline_complete",
                 "risk_score": full_log.get("risk_score", 0),

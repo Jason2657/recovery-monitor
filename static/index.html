@@ -192,6 +192,11 @@
               class="hidden px-3 py-2 rounded-xl text-sm font-medium text-red-400 border border-red-500/25 bg-red-500/8 hover:bg-red-500/15 transition-all">
               Delete
             </button>
+            <label class="flex items-center gap-1.5 text-xs text-slate-400 cursor-pointer select-none mr-1"
+              title="Route the 3 analysis agents through the real Fetch.ai uAgents Bureau (a bit slower)">
+              <input type="checkbox" id="mesh-toggle" class="accent-teal-400">
+              <span>⬡ Fetch mesh</span>
+            </label>
             <button id="run-btn" onclick="runAnalysis()"
               class="px-5 py-2.5 rounded-xl font-semibold text-sm text-white transition-all"
               style="background:linear-gradient(135deg,#3b82f6,#6366f1);box-shadow:0 4px 20px rgba(99,102,241,0.35)">
@@ -269,6 +274,21 @@
                 <p id="risk-timing-text" class="text-xs mt-0.5 text-slate-400"></p>
               </div>
             </div>
+          </div>
+        </div>
+
+        <!-- Band governance: gate decision + append-only audit trail + Arize strip -->
+        <div id="governance-section" class="hidden fade-in mt-5">
+          <div class="flex items-center justify-between mb-2.5">
+            <p class="text-xs font-semibold text-slate-500 uppercase tracking-widest">Band · Governed Decision</p>
+            <span id="mesh-used-badge" class="hidden text-[10px] px-2 py-0.5 rounded-full"
+              style="background:#0d948822;color:#5eead4;border:1px solid #0d948855">⬡ analysis ran via Fetch.ai mesh</span>
+          </div>
+          <div class="glass rounded-2xl p-5">
+            <div id="gate-badge" class="mb-4"></div>
+            <p class="text-xs text-slate-500 mb-2">Append-only audit trail</p>
+            <div id="audit-trail" class="space-y-1"></div>
+            <div id="arize-strip" class="hidden mt-4 pt-3 border-t border-white/5"></div>
           </div>
         </div>
 
@@ -494,6 +514,21 @@ const AGENT_META = {
   brief:       { icon:'📋', label:'Clinical Brief',   desc:'SBAR handoff document' },
 };
 const SEV_COLORS = { low:'#22c55e', medium:'#f59e0b', high:'#f97316', critical:'#ef4444', unknown:'#6b7280' };
+// Which sponsor each agent card maps to (only the 3 analysis agents are Fetch uAgents).
+const SPONSOR_TAG = {
+  signal:{l:'Fetch.ai uAgent',c:'#5eead4'}, trend:{l:'Fetch.ai uAgent',c:'#5eead4'}, self_report:{l:'Fetch.ai uAgent',c:'#5eead4'},
+  knowledge:{l:'RAG',c:'#94a3b8'}, skeptic:{l:'Band room',c:'#c4b5fd'}, reconciler:{l:'Band room',c:'#c4b5fd'}, brief:{l:'SBAR handoff',c:'#94a3b8'},
+};
+let MESH_ADDR = {};  // stage -> real uAgent address, loaded from /api/mesh
+function sponsorTagHtml(id){
+  const t = SPONSOR_TAG[id]; if(!t) return '';
+  const a = MESH_ADDR[id];
+  const addr = a ? `<span class="text-slate-600 font-mono" title="${a}">${a.slice(0,12)}…</span>` : '';
+  return `<div class="mt-1.5 pt-1.5 border-t border-white/5 flex items-center justify-between text-[10px]">
+    <span style="color:${t.c}">⬡ ${t.l}</span>${addr}</div>`;
+}
+fetch('/api/mesh').then(r=>r.json()).then(d=>{(d.agents||[]).forEach(a=>{MESH_ADDR[a.stage]=a.address;});
+  if (typeof initAgentCards==='function') initAgentCards();}).catch(()=>{});
 const BUILT_IN = new Set(['PT-7421','PT-3892','PT-5163']);
 
 // ─── App state ────────────────────────────────────────────────────────────────
@@ -714,7 +749,8 @@ function initAgentCards() {
         <span class="text-xs font-semibold text-slate-300">${meta.label}</span>
       </div>
       <p class="text-xs text-slate-600">${meta.desc}</p>
-      <div class="agent-status mt-2 text-xs text-slate-600"></div>`;
+      <div class="agent-status mt-2 text-xs text-slate-600"></div>
+      ${sponsorTagHtml(id)}`;
   });
 }
 
@@ -730,7 +766,8 @@ function resetPipeline() {
         <span class="text-xs font-semibold text-slate-300">${meta.label}</span>
       </div>
       <p class="text-xs text-slate-600">${meta.desc}</p>
-      <div class="agent-status mt-2 text-xs text-slate-600">Waiting…</div>`;
+      <div class="agent-status mt-2 text-xs text-slate-600">Waiting…</div>
+      ${sponsorTagHtml(id)}`;
   });
 }
 
@@ -787,7 +824,8 @@ function setAgentComplete(id, brief, elapsed) {
       <span class="text-xs px-1.5 py-0.5 rounded-full font-semibold badge-${sev}">${sev}</span>
     </div>
     <div class="agent-status">${content}</div>
-    <div class="mt-1.5 text-xs text-slate-600">${elapsed}s</div>`;
+    <div class="mt-1.5 text-xs text-slate-600">${elapsed===null?'via mesh':elapsed+'s'}</div>
+    ${sponsorTagHtml(id)}`;
 
   agentsDone++;
   updateProgress(agentsDone);
@@ -809,13 +847,16 @@ function runAnalysis() {
   document.getElementById('pipeline-section').classList.remove('hidden');
   document.getElementById('risk-section').classList.add('hidden');
   document.getElementById('sbar-section').classList.add('hidden');
+  document.getElementById('governance-section').classList.add('hidden');
   resetPipeline();
 
-  const es = new EventSource(`/api/analyze/${selectedPatient.id}`);
+  const useMesh = document.getElementById('mesh-toggle')?.checked;
+  const es = new EventSource(`/api/analyze/${selectedPatient.id}${useMesh ? '?mesh=true' : ''}`);
   es.onmessage = (e) => {
     let d; try { d = JSON.parse(e.data); } catch { return; }
     if (d.type === 'agent_start') setAgentRunning(d.agent_id);
     else if (d.type === 'agent_complete') setAgentComplete(d.agent_id, d.brief, d.elapsed);
+    else if (d.type === 'governance') renderGovernance(d);
     else if (d.type === 'pipeline_complete') {
       renderRisk(d); renderSbar(d.sbar);
       es.close(); finishRun(d);
@@ -908,6 +949,60 @@ function copySbar() {
 }
 
 // ─── NEW PATIENT WIZARD ───────────────────────────────────────────────────────
+
+function renderGovernance(d){
+  const sec = document.getElementById('governance-section');
+  sec.classList.remove('hidden');
+  const gate = d.gate || {};
+  const col = gate.escalate ? '#f97316' : '#22c55e';
+  const label = gate.escalate ? 'ESCALATE' : 'HOLD';
+  const auth = gate.authority_granted
+    ? '<span style="color:#4ade80">granted</span>' : '<span style="color:#f87171">denied</span>';
+  document.getElementById('gate-badge').innerHTML =
+    `<div class="flex items-center gap-3 flex-wrap">
+       <span class="px-3 py-1 rounded-lg font-bold text-sm" style="background:${col}1a;color:${col};border:1px solid ${col}55">${label}</span>
+       <span class="text-xs text-slate-400">authority ${auth}</span>
+     </div>
+     <p class="text-xs text-slate-500 mt-1.5">${esc(gate.reason||'')}</p>`;
+
+  document.getElementById('mesh-used-badge').classList.toggle('hidden', !d.mesh_used);
+
+  // append-only audit trail, revealed one row at a time
+  const at = document.getElementById('audit-trail'); at.innerHTML = '';
+  (d.audit||[]).forEach((r,i)=>{
+    const row = document.createElement('div');
+    row.className = 'flex items-center gap-2 text-xs opacity-0';
+    row.style.transition = 'opacity .3s';
+    const a = r.authority_granted ? '<span class="text-green-400">✓ authority</span>' : '<span class="text-slate-600">—</span>';
+    row.innerHTML = `<span class="text-slate-600 w-4">${i+1}</span>
+      <span class="font-mono text-slate-400" style="width:11rem">${esc(r.actor||'')}</span>
+      <span class="text-slate-300 flex-1">${esc(r.action||'')}</span>${a}`;
+    at.appendChild(row);
+    setTimeout(()=>{ row.style.opacity='1'; }, 130*i);
+  });
+
+  // Arize strip: trace status + self-correction outcome
+  const obs = d.observability || {}, scn = obs.self_correction || {};
+  const trace = obs.tracing_enabled
+    ? '<span style="color:#4ade80">tracing live</span>' : '<span class="text-slate-500">tracing no-op</span>';
+  let sc;
+  if (scn.ran){
+    const ok = scn.correct;
+    const moved = scn.threshold_before === scn.threshold_after
+      ? 'unchanged' : `${(scn.threshold_before).toFixed(2)} → ${(scn.threshold_after).toFixed(2)}`;
+    sc = `<span style="color:${ok?'#4ade80':'#f87171'}">${ok?'✓ correct':'✗ miscalibrated'}</span>
+      · predicted ${scn.predicted_escalate?'escalate':'hold'} vs truth ${scn.ground_truth_escalate?'escalate':'hold'}
+      · RISK_THRESHOLD <b class="text-slate-300">${moved}</b>`;
+  } else {
+    sc = '<span class="text-slate-500">no ground-truth label for this patient</span>';
+  }
+  const strip = document.getElementById('arize-strip');
+  strip.classList.remove('hidden');
+  strip.innerHTML = `<div class="flex items-center gap-2 mb-1">
+      <span class="text-[10px] uppercase tracking-widest text-slate-500">Arize · Observability + self-correction</span>
+      <span class="text-[10px]">${trace}</span></div>
+    <p class="text-xs text-slate-400">${sc}</p>`;
+}
 
 function openNewPatient() {
   npStep = 1;

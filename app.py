@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-PostCare AI Monitor — FastAPI web backend.
+Nightingale — FastAPI web backend.
 Serves the web UI and streams agent analysis via Server-Sent Events (SSE).
 Also provides Deepgram STT/TTS endpoints and patient CRUD.
 
@@ -25,7 +25,7 @@ from fastapi.staticfiles import StaticFiles
 
 load_dotenv()
 
-app = FastAPI(title="PostCare AI Monitor")
+app = FastAPI(title="Nightingale")
 
 # ─── Arduino serial reader (optional — degrades gracefully if not connected) ──
 _arduino_state: dict = {"tilt": 0, "light": 0, "connected": False, "prev_light_dark": True}
@@ -802,7 +802,7 @@ async def get_log(filename: str):
 
 if __name__ == "__main__":
     import uvicorn
-    print("PostCare AI Monitor")
+    print("Nightingale")
     print("Web UI → http://localhost:8000")
     print()
     uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=False, log_level="warning")

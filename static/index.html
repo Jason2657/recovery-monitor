@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>PostCare AI Monitor</title>
+<title>Nightingale</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -165,12 +165,12 @@
 
   /* Fetch.ai badge */
   .fetch-badge {
-    display:inline-flex; align-items:center; gap:5px;
-    font-size:0.65rem; font-weight:700; letter-spacing:0.06em; text-transform:uppercase;
-    padding:2px 8px; border-radius:20px;
-    background:rgba(14,165,233,0.12); color:#38bdf8; border:1px solid rgba(14,165,233,0.3);
+    display:inline-flex; align-items:center; gap:3px;
+    font-size:0.55rem; font-weight:600; letter-spacing:0.04em; text-transform:uppercase;
+    padding:1px 5px; border-radius:20px;
+    background:rgba(14,165,233,0.08); color:#64b5d6; border:1px solid rgba(14,165,233,0.18);
   }
-  .fetch-badge .dot { width:5px; height:5px; border-radius:50%; background:#38bdf8; animation:blink-red 1.4s ease-in-out infinite; }
+  .fetch-badge .dot { width:3px; height:3px; border-radius:50%; background:#64b5d6; animation:blink-red 1.4s ease-in-out infinite; }
 
   /* Tilt unstable state */
   .tilt-unstable-pill { background:rgba(239,68,68,0.18); color:#f87171; border:1px solid rgba(239,68,68,0.4); animation:pulse-red 1.1s ease-in-out infinite; }
@@ -212,12 +212,12 @@
   <div class="flex items-center gap-3">
     <div class="w-7 h-7 rounded-lg flex items-center justify-center text-white text-sm font-bold"
          style="background:linear-gradient(135deg,#3b82f6,#6366f1)">+</div>
-    <span class="font-semibold text-white text-sm">PostCare AI Monitor</span>
+    <span class="font-semibold text-white text-sm">Nightingale</span>
     <span class="text-xs px-2 py-0.5 rounded-full border text-blue-400 border-blue-500/30 bg-blue-500/10">Multi-Agent</span>
   </div>
   <div class="flex items-center gap-4">
     <button onclick="openLogsModal()" class="text-xs text-slate-400 hover:text-slate-200 transition-colors">View Logs</button>
-    <span class="mono text-xs text-slate-500">claude-opus-4-8</span>
+    <span class="mono text-slate-700" style="font-size:0.6rem">claude-opus-4-8</span>
     <!-- Deepgram indicator -->
     <span id="dg-badge" class="hidden text-xs px-2 py-0.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 font-medium">DG</span>
     <span id="bb-badge" class="hidden text-xs px-2 py-0.5 rounded-full border border-violet-500/30 bg-violet-500/10 text-violet-400 font-medium">BB</span>
@@ -494,6 +494,15 @@
                 <span class="chev">▶</span>
               </summary>
               <ul id="res-redflags" class="space-y-1 mt-1.5 pl-1"></ul>
+            </details>
+
+            <!-- Monitoring parameters (collapsible) -->
+            <details class="res-section">
+              <summary>
+                <span class="text-xs font-semibold text-slate-500 uppercase tracking-widest">Monitoring Parameters</span>
+                <span class="chev">▶</span>
+              </summary>
+              <div id="res-params" class="space-y-1 mt-2"></div>
             </details>
 
             <!-- Evidence highlights (collapsible) -->
@@ -1367,8 +1376,8 @@ function setAgentComplete(id, brief, elapsed) {
     detail = `<em class="text-slate-500">"${esc(bc)}"</em>`;
   } else if (id === 'reconciler') {
     const sc = brief.risk_score ?? 'N/A';
-    const driver = (brief.primary_drivers||[])[0] || '';
-    detail = `Risk <strong style="color:${color};font-size:1.05rem">${sc}/100</strong>${driver ? ` · ${esc(driver.substring(0,50))}` : ''}`;
+    const conf = brief.confidence ? ` · ${brief.confidence} confidence` : '';
+    detail = `Risk <strong style="color:${color};font-size:1.05rem">${sc}/100</strong><span class="text-slate-500">${esc(conf)}</span>`;
   } else if (id === 'brief') {
     detail = `<span class="text-slate-400">SBAR ready ↓</span>`;
   }
@@ -2537,17 +2546,45 @@ function renderResearch(data) {
     </li>`
   ).join('');
 
-  // Evidence highlights
+  // Monitoring parameters
+  const params = data.monitoring_parameters || [];
+  const paramsEl = document.getElementById('res-params');
+  if (paramsEl) {
+    paramsEl.innerHTML = params.length ? params.map(p => `
+      <div class="flex items-start gap-2 text-xs py-1 border-b border-white/4">
+        <span class="text-slate-400 font-semibold min-w-28 flex-shrink-0">${esc(p.parameter || '')}</span>
+        <span class="text-slate-500">Normal: ${esc(p.normal_range || '–')}</span>
+        <span class="text-amber-400 ml-auto flex-shrink-0">⚠ ${esc(p.concern_threshold || '?')}</span>
+      </div>`).join('')
+      : '<p class="text-xs text-slate-600 italic">No parameters extracted.</p>';
+  }
+
+  // Build PubMed abstract lookup by URL for pull-quotes
+  const abstracts = {};
+  (data.pubmed_abstracts || []).forEach(a => { abstracts[a.url] = a.snippet; });
+
+  // Evidence highlights with collapsible PubMed pull-quote
   const evid = data.evidence_highlights || [];
-  document.getElementById('res-evidence').innerHTML = evid.map(e => `
+  const evidHtml = evid.length ? evid.map((e, i) => {
+    const pullQuote = abstracts[e.url] || e.key_finding || 'See source for full abstract.';
+    const shortUrl = e.url ? e.url.replace(/^https?:\/\//, '').split('/').slice(0,3).join('/') : '';
+    return `
     <div class="evidence-card">
-      <div class="flex items-center gap-2 mb-1.5">
-        <span class="text-xs font-semibold text-slate-300">${esc(e.source || '')}</span>
-        ${e.url ? `<a href="${esc(e.url)}" target="_blank" class="text-xs text-blue-400 hover:underline truncate max-w-xs">${esc(e.url.replace(/^https?:\/\//, '').split('/').slice(0,3).join('/'))}</a>` : ''}
+      <div class="flex items-center gap-2 mb-1">
+        <span class="text-xs font-semibold text-slate-300">${esc(e.source || 'PubMed')}</span>
+        ${e.url ? `<a href="${esc(e.url)}" target="_blank" class="text-xs text-blue-400 hover:underline truncate max-w-xs">${esc(shortUrl)}</a>` : ''}
       </div>
       <p class="text-xs text-slate-300 leading-relaxed mb-1">${esc(e.key_finding || '')}</p>
-      ${e.clinical_relevance ? `<p class="text-xs text-violet-400 italic">${esc(e.clinical_relevance)}</p>` : ''}
-    </div>`).join('');
+      ${e.clinical_relevance ? `<p class="text-xs text-violet-400 italic mb-1">${esc(e.clinical_relevance)}</p>` : ''}
+      <details class="mt-1">
+        <summary class="text-xs text-slate-600 cursor-pointer hover:text-slate-400 select-none" style="list-style:none">
+          ▸ Abstract excerpt
+        </summary>
+        <blockquote class="mt-1.5 pl-2 border-l-2 border-slate-700 text-xs text-slate-500 leading-relaxed italic">${esc(pullQuote)}</blockquote>
+      </details>
+    </div>`;
+  }).join('') : `<p class="text-xs text-slate-500 italic">No evidence highlights extracted from this run.</p>`;
+  document.getElementById('res-evidence').innerHTML = evidHtml;
 
   // Tailored narrative — keep short (max 3 sentences)
   const narr = data.tailored_risk_narrative || '';

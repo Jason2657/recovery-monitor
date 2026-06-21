@@ -612,6 +612,11 @@ Return ONLY this JSON structure. All fields must specifically mention {disease}:
         {"name": s["name"], "url": s["url"], "type": s["type"]}
         for s in raw_sources
     ]
+    # Store PubMed abstract snippets for UI pull-quote dropdowns (max 350 chars each)
+    synthesis["pubmed_abstracts"] = [
+        {"url": s["url"], "snippet": s["text"][:350].strip()}
+        for s in raw_sources if s.get("name") == "PubMed"
+    ]
     synthesis["patient_id"] = profile.get("id", "")
     synthesis["diagnosis"]  = diagnosis
     synthesis["condition"]  = condition

@@ -158,21 +158,36 @@ def run_signal_agent(current_readings: dict, patient_profile: dict, client) -> d
         "Tailor your interpretation to the patient's primary condition (CHF, post-surgical, COPD, etc.). "
         "Return valid JSON only."
     )
+    # Pull live sensor values if provided (from the SSE stream feed)
+    live = current_readings.get("_live", {})
+    live_hr    = live.get("hr",   current_readings.get("hr_resting_bpm", "N/A"))
+    live_spo2  = live.get("spo2", current_readings.get("spo2_pct", "N/A"))
+    live_rr    = live.get("rr",   current_readings.get("rr_breaths_per_min", "N/A"))
+    live_temp  = live.get("temp", current_readings.get("temp_c", "N/A"))
+    live_sbp   = live.get("sbp",  current_readings.get("systolic_bp", "N/A"))
+    live_dbp   = live.get("dbp",  current_readings.get("diastolic_bp", "N/A"))
+    live_label = "(live sensor)" if live else "(last recorded)"
+
     user = f"""Analyze Day {current_readings['day']} vital signs for:
 Patient: {patient_profile['name']}, {patient_profile['age']}yo {patient_profile['sex']}
 Diagnosis: {patient_profile['diagnosis']}
 Primary condition context: {condition}
+Medications: {', '.join(patient_profile.get('medications', []))}
 Baseline HR: {patient_profile['baseline_hr_bpm']} bpm | Baseline SpO2: {patient_profile['baseline_spo2_pct']}%
 
-TODAY'S READINGS:
-  HR (resting): {current_readings['hr_resting_bpm']} bpm
-  SpO2: {current_readings['spo2_pct']}%
-  Respiratory rate: {current_readings['rr_breaths_per_min']} breaths/min
-  Temperature: {current_readings['temp_c']}°C
-  Blood pressure: {current_readings['systolic_bp']}/{current_readings['diastolic_bp']} mmHg
+CURRENT VITALS {live_label}:
+  HR (resting): {live_hr} bpm
+  SpO2: {live_spo2}%
+  Respiratory rate: {live_rr} breaths/min
+  Temperature: {live_temp}°C
+  Blood pressure: {live_sbp}/{live_dbp} mmHg
   Weight: {current_readings['weight_lbs']} lbs (baseline {patient_profile['baseline_weight_lbs']} lbs)
-  Steps: {current_readings['steps']} | Sleep interruptions: {current_readings['sleep_interruptions']}
-  Light-on wake events (live): {current_readings.get('light_wake_count', 'N/A')} (patient turned on light mid-sleep)
+  Steps: {current_readings['steps']}
+
+SLEEP DATA (nighttime sensor):
+  Sleep interruptions (recorded): {current_readings['sleep_interruptions']}
+  Light-on wake events (live photoresistor): {current_readings.get('light_wake_count', 0)}
+  Note: light >200 lux = dark/asleep; ≤200 lux = light on/awake. Wakes counted only after first dark period.
 
 PRE-COMPUTED NEWS2:
   Total: {news2['total']}/15 — {news2['risk']} Risk
@@ -284,9 +299,10 @@ Return JSON ONLY:
 
 
 def run_knowledge_agent(signal_out: dict, trend_out: dict, self_report_out: dict,
-                        client, web_research: dict = None) -> dict:
+                        client, web_research: dict = None, patient_profile: dict = None) -> dict:
     news2 = signal_out.get("_news2", {})
     trends = trend_out.get("_trends", {})
+    meds = patient_profile.get("medications", []) if patient_profile else []
 
     state = f"""
 SIGNAL: {signal_out.get('summary', 'N/A')} [Severity: {signal_out.get('severity', '?')}]
@@ -301,6 +317,8 @@ KEY METRICS:
   Weight change: {trends.get('weight_change_lbs_7days', '?')} lbs
   Activity decline: {trends.get('steps_decline_pct', '?')}%
   Red flag phrases: {self_report_out.get('red_flag_phrases', [])}
+
+CURRENT MEDICATIONS: {', '.join(meds) if meds else 'None listed'}
 """
 
     # Inject live web research if available
@@ -314,6 +332,9 @@ KEY METRICS:
         "Apply the provided clinical knowledge base AND any literature research context to the patient state. "
         "Always cite specific criteria by name and threshold. When literature context is present, "
         "cross-reference it with the built-in guidelines and flag any additional risks it reveals. "
+        "IMPORTANT: Always consider the patient's current medications — check for relevant drug effects, "
+        "drug-condition interactions (e.g. diuretics in CHF, beta-blockers masking tachycardia), "
+        "and whether medication adherence issues may explain any reported symptoms. "
         "Return valid JSON only."
     )
     user = f"""Apply clinical guidelines to this post-discharge patient state.
@@ -326,6 +347,8 @@ CLINICAL KNOWLEDGE BASE:
 
 Identify which specific criteria are triggered. Be precise — state the threshold and whether it is met.
 If literature research context is provided above, incorporate its complication thresholds and red flags.
+For medications: note any drug-condition interactions, expected medication effects on vitals, and
+whether current readings could reflect medication side effects vs true deterioration.
 
 Return JSON ONLY:
 {{
@@ -337,10 +360,17 @@ Return JSON ONLY:
       "clinical_significance": "why this matters"
     }}
   ],
+  "medication_considerations": [
+    {{
+      "medication": "drug name",
+      "relevant_effect": "how this drug affects vital sign interpretation or risk",
+      "interaction_flag": "any drug-condition concern"
+    }}
+  ],
   "red_flags_triggered": ["specific red flag WITH supporting data"],
   "red_flags_approaching": ["not yet met but trending toward"],
   "most_applicable_guideline": "which guideline is most relevant and why",
-  "summary": "3-4 sentence evidence-based assessment citing specific guidelines",
+  "summary": "3-4 sentence evidence-based assessment citing specific guidelines and noting medication context",
   "severity": "low|medium|high|critical"
 }}"""
 
@@ -578,7 +608,7 @@ Write the SBAR using EXACTLY this structure. RECOMMENDATION items must be on a s
 5. At [timeframe]: [follow-up assessment]
 
 ---
-*PostCare AI Monitor | {patient_profile['id']} | 2026-06-20 | {MODEL}*"""
+*Nightingale | {patient_profile['id']} | 2026-06-20 | {MODEL}*"""
 
     with client.messages.stream(
         model=MODEL,
@@ -781,7 +811,7 @@ def run_full_pipeline(
         # Only inject the compact synthesis from web_research (not raw page text)
         # to keep RAG token spend low.
         knowledge_out = step("knowledge", "Medical Knowledge (RAG)", run_knowledge_agent,
-                             signal_out, trend_out, self_report_out, client, web_research)
+                             signal_out, trend_out, self_report_out, client, web_research, profile)
 
         # --- Band room: governed Skeptic <-> Reconciler deliberation (audited) ---
         band = get_band_room(audit=AuditLog(echo=False))

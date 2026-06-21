@@ -84,17 +84,7 @@ if os.path.isdir("static"):
     app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # ─── In-memory caches ─────────────────────────────────────────────────────────
-# Pre-seed built-in patients with representative scores so the sidebar shows
-# risk badges before the first analysis run. These are replaced by real pipeline
-# output the moment a run completes.
-last_results: dict = {
-    "PT-7421": {"risk_score": 78, "risk_level": "critical",  "timestamp": "baseline"},
-    "PT-3892": {"risk_score": 66, "risk_level": "high",      "timestamp": "baseline"},
-    "PT-5163": {"risk_score": 73, "risk_level": "high",      "timestamp": "baseline"},
-    "PT-8427": {"risk_score": 70, "risk_level": "high",      "timestamp": "baseline"},
-    "PT-2048": {"risk_score": 12, "risk_level": "low",       "timestamp": "baseline"},
-    "PT-1847": {"risk_score":  8, "risk_level": "low",       "timestamp": "baseline"},
-}
+last_results: dict = {}   # patient_id -> {risk_score, risk_level, timestamp}; populated after pipeline runs
 _live_cache:  dict = {}   # patient_id -> latest live payload from /api/live SSE
 
 # ─── Clients (lazy-init) ──────────────────────────────────────────────────────

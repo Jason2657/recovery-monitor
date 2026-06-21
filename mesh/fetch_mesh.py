@@ -185,7 +185,7 @@ def _make_escalation_worker() -> "Agent":
             authority_granted=msg.authority_granted,
             payload={
                 "via":        "fetch.uagent",
-                "address":    ctx.address,
+                "address":    getattr(getattr(ctx, "agent", None), "address", None),
                 "patient_id": msg.patient_id,
                 "risk_score": msg.risk_score,
             },

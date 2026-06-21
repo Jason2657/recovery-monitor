@@ -386,7 +386,10 @@ Return JSON ONLY:
   "severity": "low|medium|high|critical"
 }}"""
 
-    return _parse_json(_call(client, system, user, max_tokens=4000))
+    # max_tokens raised 4000->8000: Arize traces/evals showed adaptive thinking +
+    # this large guideline JSON exceeded 4000, truncating the output -> ~70% of
+    # runs failed to parse (severity "unknown"), discarding the RAG evidence stream.
+    return _parse_json(_call(client, system, user, max_tokens=8000))
 
 
 def run_skeptic_agent(signal_out: dict, trend_out: dict, self_report_out: dict,

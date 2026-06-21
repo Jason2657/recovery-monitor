@@ -20,10 +20,16 @@ Everything here is best-effort and never breaks the pipeline.
 from __future__ import annotations
 
 import json
+import os
 import re
 from dataclasses import asdict, dataclass
 
 import config
+
+#: The judge uses a separate, deterministic model (temperature=0) — independent of
+#: the pipeline's model (opus-4-8) and reproducible run-to-run, so a real change in
+#: app quality shows as a real change in eval score (not judge noise).
+JUDGE_MODEL = os.getenv("JUDGE_MODEL", "claude-sonnet-4-6")
 
 
 @dataclass
@@ -77,8 +83,9 @@ def _judge_call(client, rubric: str, payload: str, name: str) -> EvalResult:
             _cm = contextlib.nullcontext()
         with _cm:
             msg = client.messages.create(
-                model=config.MODEL,
+                model=JUDGE_MODEL,
                 max_tokens=600,
+                temperature=0,  # deterministic grading so real improvements aren't lost in noise
                 system=_SYSTEM,
                 messages=[{"role": "user", "content": user}],
             )

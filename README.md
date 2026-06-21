@@ -113,22 +113,60 @@ python -m mesh.fetch_mesh
 python app.py        # → http://localhost:8000
 ```
 
-**Observability (optional).** Tracing is a clean no-op until you turn it on:
+## Arize observability (sponsor track)
 
+Every pipeline run is traced to **Arize AX** (app.arize.com), and a deterministic
+**LLM-as-judge** scores each run and logs the verdict as feedback onto the trace —
+which we then used to find and fix a real bug. Mapped to the judging criteria:
+
+**1 · Integrated correctly.** [`observability/tracing.py`](observability/tracing.py)
+calls `arize.otel.register(...)` and OpenInference auto-instruments the Anthropic SDK,
+so each run is one trace: a `pipeline` root span → a span per agent (`agent.signal` …
+`agent.brief`, `band.deliberate`, `band.escalation_gate`) → an auto-captured child
+span for every Claude call. Set `ARIZE_API_KEY` + `ARIZE_SPACE_ID` +
+`ARIZE_PROJECT_NAME` (project `nightingale`); falls back to Phoenix, else a clean no-op.
+
+**2 · Meaningful trace data.** Each run emits ~15–20 spans (8 agent spans + the
+auto-instrumented Claude LLM spans, with prompts / responses / token usage).
+`scripts/eval_suite.py` traces every patient in one command.
+
+**3 · An evaluator.** [`observability/llm_judge.py`](observability/llm_judge.py) is an
+LLM-as-judge (`claude-sonnet-4-6`, **temperature 0** — independent of the pipeline's
+opus model, so scores are reproducible). It grades each run on two dimensions and
+attaches `eval.clinical_soundness.*` and `eval.sbar_quality.*` to the run's span via
+`ArizeClient().spans.update_evaluations(...)`:
+- **clinical_soundness** — is the Reconciler's risk / escalation / urgency calibrated
+  and justified by the evidence (no alarm-fatigue, no missed deterioration)?
+- **sbar_quality** — is the clinician SBAR handoff complete, specific, urgency-aware,
+  and free of hallucinated facts?
+
+**4 · Used the feedback to improve the app.** Both fixes were surfaced by the evals/traces:
+- **Major — Medical Knowledge (RAG) agent.** The `clinical_soundness` critiques + traces
+  kept showing the Reconciler "capping confidence due to a failed / UNKNOWN knowledge
+  stream." The traces revealed the **RAG agent was silently failing to parse on ~70% of
+  runs** — adaptive thinking + a large guideline JSON blew past its 4000-token cap,
+  truncating the output → `severity: "unknown"`. We raised the budget; **parse-failure
+  dropped ~70% → 0%**, recovering a full evidence stream (8–11 guideline citations/patient).
+- **Minor — SBAR hallucination.** The `sbar_quality` judge flagged ungrounded
+  extrapolations ("temp >38 °C in ~2 days") and generic stats in the handoff. We added
+  GROUNDING RULES to the SBAR prompt; the ungrounded claims disappeared.
+
+**Generate the artifact judges inspect:**
 ```bash
-pip install arize-phoenix && phoenix serve    # local UI at http://localhost:6006
-ENABLE_TRACING=1 python run_demo.py --patient PT-7421
+# .env: ARIZE_API_KEY, ARIZE_SPACE_ID, ARIZE_PROJECT_NAME=nightingale
+python scripts/eval_suite.py --tag baseline    # all patients -> traces + evals in Arize
+python scripts/eval_suite.py --tag improved    # after a fix, to compare
 ```
+Then open **app.arize.com → project `nightingale`**: per-run traces (agent + Claude
+spans) each carrying the two eval labels.
 
-…or point at Arize cloud with `ARIZE_API_KEY` + `ARIZE_SPACE_ID`.
+> Local alternative (no account): `pip install arize-phoenix && phoenix serve`, then `ENABLE_TRACING=1`.
 
-## The self-correction loop
+## The self-correction loop (bonus feedback mechanism)
 
-The only knob the feedback loop moves is `RISK_THRESHOLD`. Each patient carries a
-`ground_truth_escalate` label; after a run the evaluator grades the Reconciler's
-call and nudges the knob — a false alarm **raises** it (be calmer), a missed
-deterioration **lowers** it (be keener). Run the benign decoy (`PT-2048`) to watch
-it raise the threshold after an over-escalation.
+A second, deterministic loop nudges one `RISK_THRESHOLD` knob: each patient carries a
+`ground_truth_escalate` label; a false alarm **raises** the threshold (be calmer), a
+missed deterioration **lowers** it (be keener). Run the benign decoy (`PT-2048`) to see it.
 
 ## Tests
 
@@ -148,7 +186,8 @@ schemas.py           pydantic governance contract (RiskAssessment, GateDecision,
 agents.py            the 7 agent bodies + the governed run_full_pipeline orchestrator
 patient_data.py      synthetic patients + clinical knowledge base
 band/                Band governance: audit · room (deliberate + gate) · adapter
-observability/       Arize/Phoenix: tracing · evaluator (self-correction)
+observability/       Arize: tracing · llm_judge (LLM-as-judge eval) · evaluator (self-correction)
+scripts/eval_suite.py runs the judge across all patients -> traces + evals in Arize
 mesh/                Fetch.ai uAgents Bureau (real message-passing workers)
 run_demo.py          sponsor-aware terminal demo
 main.py              brief terminal runner

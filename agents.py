@@ -410,6 +410,11 @@ Where skepticism fails: {skeptic_out.get('where_skepticism_fails', '')}
     condition = patient_profile.get("primary_condition", "general")
     condition_overrides = escalation_kb.get("condition_overrides", {}).get(condition, [])
 
+    # Count data quality for upstream agents to inform confidence level
+    upstream_parse_errors = sum(1 for o in [signal_out, trend_out, self_report_out, knowledge_out, skeptic_out]
+                                if o.get("_parse_error"))
+    data_days = len([r for r in patient_profile.get("sensor_history_ref", []) if r]) if "sensor_history_ref" in patient_profile else 7
+
     system = (
         "You are the Reconciler/Judge Agent — final arbiter of clinical escalation. "
         "Weigh ALL evidence from 5 independent data streams against the Skeptic's best arguments. "
@@ -424,34 +429,55 @@ Where skepticism fails: {skeptic_out.get('where_skepticism_fails', '')}
         "LEVEL 3 (Emergency): NEWS2 7+, SpO2 <88%, HR >130 or <40, systolic <90, acute chest pain, "
         "severe dyspnea → it would be appropriate to activate emergency medical services (911) immediately.\n"
         f"CONDITION-SPECIFIC OVERRIDES for {condition.upper()}: {'; '.join(condition_overrides)}\n\n"
+        "CONFIDENCE DEFINITION — score your own certainty:\n"
+        "  high   = all 5 upstream agents returned complete data, signals are internally consistent, "
+        "clear convergence across independent streams, no data gaps in sensor history.\n"
+        "  medium = 1-2 upstream agents had parse issues OR mild contradictions between agent outputs "
+        "OR ≤5 days of sensor history OR signals only partially converge.\n"
+        "  low    = 3+ upstream agents failed/had parse errors OR major contradictions OR <4 days data "
+        "OR signals completely diverge — assessment is a best-effort estimate under uncertainty.\n\n"
         "IMPORTANT: The escalation_recommendation field must state what action 'would be appropriate' — "
         "this system does NOT take action itself. All clinical decisions remain with the care team.\n"
-        "Return valid JSON only."
+        "Return valid JSON only. Every field is required — never omit risk_score or risk_level."
     )
+    upstream_quality = f"Upstream agent errors: {upstream_parse_errors}/5 | Data days available: {days_post_discharge}"
     user = f"""Reconcile all evidence for {patient_profile['name']}, Day {days_post_discharge} post-{patient_profile['diagnosis']}.
 
 {evidence_for}
 {evidence_against}
 
-Weigh convergent evidence against skeptic counterarguments.
+DATA QUALITY: {upstream_quality}
 
-Return JSON ONLY:
+Weigh convergent evidence against skeptic counterarguments. You MUST assign a concrete risk_score (0-100) and risk_level — never leave these as null, 0 by default, or 'unknown'. Even with limited data, make a calibrated estimate and note uncertainty in confidence and rationale.
+
+Return JSON ONLY (all fields required):
 {{
-  "risk_score": <integer 0-100>,
+  "risk_score": <integer 1-100, never 0 unless truly no risk signal at all>,
   "risk_level": "low|moderate|high|critical",
-  "primary_drivers": ["driver 1 with supporting numbers", "driver 2 with supporting numbers"],
+  "primary_drivers": ["specific driver with supporting numbers", "second driver with numbers"],
   "mitigating_factors": ["valid skeptic point that appropriately reduced the score"],
   "convergence_argument": "why simultaneous trends across 5 independent streams outweigh individual benign explanations",
   "skeptic_rebuttal": "specific response to the skeptic's strongest argument",
-  "confidence": "low|medium|high",
-  "recommended_action": "specific clinical action",
+  "confidence": "low|medium|high (per the definitions above)",
+  "recommended_action": "specific clinical action in 1-2 sentences",
   "time_sensitivity": "immediately|within_4h|within_24h|within_48h|routine",
   "escalation_level": <integer 0-3 matching the escalation protocol levels above>,
-  "escalation_recommendation": "Full text of what intervention would be appropriate, per escalation protocol — must include phrase 'it would be appropriate to...' and must NOT claim the AI will take action",
-  "rationale": "4-6 sentence explicit reasoning chain connecting evidence to risk score"
+  "escalation_recommendation": "Full text starting with 'it would be appropriate to...' — do NOT claim the AI takes action",
+  "rationale": "4-6 sentence explicit reasoning chain: data quality → signal convergence → score justification → confidence rationale"
 }}"""
 
-    return _parse_json(_call(client, system, user, max_tokens=2500))
+    result = _parse_json(_call(client, system, user, max_tokens=4000))
+
+    # Safety net: if parse failed or critical fields are missing, flag it clearly
+    if result.get("_parse_error") or result.get("risk_score") is None:
+        result["confidence"] = "low"
+        result["_assessment_note"] = "Parse error or missing fields — re-run analysis for accurate results"
+        if "risk_score" not in result or result.get("risk_score") is None:
+            result["risk_score"] = 0
+        if "risk_level" not in result:
+            result["risk_level"] = "unknown"
+
+    return result
 
 
 def run_brief_agent(reconciler_out: dict, patient_profile: dict, days_post_discharge: int,
@@ -476,12 +502,27 @@ Patient-specific risk narrative:
 {web_research.get('tailored_risk_narrative', '')[:500]}
 """
 
+    assessment_note = reconciler_out.get("_assessment_note", "")
+    note_block = f"\n⚠ ASSESSMENT NOTE: {assessment_note}" if assessment_note else ""
+
     system = (
         "You are a Clinical Brief Agent. Convert AI risk assessments into SBAR format — "
         "the standard healthcare handoff format. Write for a care coordinator who needs to act. "
         "Be specific: include numbers, dates, exact action items with timeframes. "
         "When literature research context is provided, weave it into the brief to make "
-        "recommendations evidence-based and specific to this patient's diagnosis."
+        "recommendations evidence-based and specific to this patient's diagnosis.\n\n"
+        "FORMATTING RULES — follow exactly:\n"
+        "1. Each section header is on its own line: **SITUATION**, **BACKGROUND**, **ASSESSMENT**, **RECOMMENDATION**\n"
+        "2. Section content immediately follows the header with one blank line between them\n"
+        "3. RECOMMENDATION items use this EXACT format — number, period, space, timeframe colon, action — ALL ON ONE LINE:\n"
+        "   1. Within 24 hours: [specific action referencing patient name and exact values]\n"
+        "   2. Daily: [monitoring action with threshold]\n"
+        "   3. Within 48 hours: [follow-up action]\n"
+        "   4. If [condition]: [contingency action]\n"
+        "   5. At next visit: [assessment action]\n"
+        "4. Do NOT put the number on one line and the content on the next line\n"
+        "5. Do NOT put the timeframe on one line and the action on the next line\n"
+        "6. The footnote line goes after the --- separator"
     )
     user = f"""Create an SBAR clinical brief.
 
@@ -490,7 +531,7 @@ PATIENT:
   Dx: {patient_profile['diagnosis']}
   Discharged: {patient_profile['discharge_date']} (Day {days_post_discharge} today)
   Meds: {', '.join(patient_profile['medications'])}
-  Baseline risk: {patient_profile['30day_readmission_risk']}
+  Baseline risk: {patient_profile['30day_readmission_risk']}{note_block}
 
 AI RISK ASSESSMENT:
   Score: {reconciler_out.get('risk_score', '?')}/100 — {str(reconciler_out.get('risk_level', '?')).upper()}
@@ -501,7 +542,7 @@ AI RISK ASSESSMENT:
   Time sensitivity: {str(reconciler_out.get('time_sensitivity', '?')).replace('_', ' ').upper()}
   Rationale: {reconciler_out.get('rationale', '?')}
 {lit_section}
-Use EXACTLY this format:
+Write the SBAR using EXACTLY this structure. RECOMMENDATION items must be on a single line each:
 
 **SITUATION**
 [1-2 sentences: who, what concern, why reaching out now]
@@ -513,14 +554,18 @@ Use EXACTLY this format:
 [3-4 sentences: AI assessment with specific data points, risk score, top drivers, cite any literature-based thresholds that are triggered]
 
 **RECOMMENDATION**
-[Numbered list of 4-5 specific action items with timeframes, grounded in both AI findings and published guidelines]
+1. Within [timeframe]: [action specific to this patient with exact values]
+2. [Timeframe]: [second action with threshold]
+3. [Timeframe]: [third action]
+4. If [condition occurs]: [contingency action]
+5. At [timeframe]: [follow-up assessment]
 
 ---
 *PostCare AI Monitor | {patient_profile['id']} | 2026-06-20 | {MODEL}*"""
 
     with client.messages.stream(
         model=MODEL,
-        max_tokens=1500,
+        max_tokens=3000,
         thinking={"type": "adaptive"},
         system=system,
         messages=[{"role": "user", "content": user}],

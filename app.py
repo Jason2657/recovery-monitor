@@ -570,6 +570,92 @@ async def debug_research(patient_id: str):
     return JSONResponse(result)
 
 
+# ─── Routes: simplify (plain-language rewrite for patients/families) ──────────
+
+@app.post("/api/simplify")
+async def simplify_text(req: Request):
+    """
+    Rewrite clinical text (SBAR or research summary) in patient-friendly plain English.
+    Body: { "text": "...", "type": "sbar"|"research" }
+    Returns: { "simplified": "..." }
+    """
+    body = await req.json()
+    text = (body.get("text") or "").strip()
+    content_type = body.get("type", "sbar")
+    if not text:
+        raise HTTPException(400, "text is required")
+    try:
+        client = get_anthropic_client()
+    except RuntimeError as e:
+        raise HTTPException(500, str(e))
+
+    if content_type == "sbar":
+        system = (
+            "You are rewriting a clinical SBAR document so that a patient and their family can fully understand it. "
+            "Keep the **SITUATION**, **BACKGROUND**, **ASSESSMENT**, **RECOMMENDATION** structure and headers. "
+            "Rules: (1) No medical abbreviations — write 'heart rate' not 'HR', 'blood oxygen level' not 'SpO2', "
+            "'beats per minute' not 'bpm', etc. (2) Explain what numbers mean in plain language. "
+            "(3) No Latin medical terms. (4) Use warm, reassuring but honest language. "
+            "(5) Keep all the same information but make it accessible to a non-medical person. "
+            "(6) Keep the same numbered recommendation list format: '1. Within X hours: action' all on one line."
+        )
+    else:
+        system = (
+            "You are rewriting a medical research summary so that a patient and their family can understand it. "
+            "Keep the same sections but explain everything in plain English. "
+            "Rules: (1) Spell out and briefly explain all abbreviations on first use. "
+            "(2) Replace medical jargon with everyday words. "
+            "(3) Use simple analogies where helpful — for example 'like a check engine light for your heart'. "
+            "(4) Keep a warm, supportive tone. A concerned grandparent should fully understand every sentence."
+        )
+
+    from agents import MODEL
+    with client.messages.stream(
+        model=MODEL,
+        max_tokens=2500,
+        thinking={"type": "adaptive"},
+        system=system,
+        messages=[{"role": "user", "content": f"Rewrite this in patient-friendly language:\n\n{text}"}],
+    ) as stream:
+        msg = stream.get_final_message()
+
+    simplified = next((b.text for b in msg.content if b.type == "text"), "")
+    return JSONResponse({"simplified": simplified})
+
+
+@app.patch("/api/patients/{patient_id}/self_report")
+async def update_self_report(patient_id: str, req: Request):
+    """Update the latest self-report text for a patient (day index from request body)."""
+    _PROTECTED = {"PT-7421", "PT-3892", "PT-5163"}
+    if patient_id in _PROTECTED:
+        raise HTTPException(403, "Cannot modify built-in demo patients")
+    body = await req.json()
+    new_text = (body.get("text") or "").strip()
+    if not new_text:
+        raise HTTPException(400, "text is required")
+
+    patients = all_patients()
+    if patient_id not in patients:
+        raise HTTPException(404, "Patient not found")
+
+    patient = patients[patient_id]
+    reports = patient.get("self_reports", [])
+    if not reports:
+        raise HTTPException(400, "No self-reports to update")
+
+    day_index = body.get("day_index", len(reports) - 1)
+    if not (0 <= day_index < len(reports)):
+        day_index = len(reports) - 1
+    reports[day_index]["text"] = new_text
+    patient["self_reports"] = reports
+
+    path = os.path.join("data", "patients", f"{patient_id}.json")
+    with open(path, "w") as f:
+        json.dump(patient, f, indent=2)
+
+    return JSONResponse({"ok": True, "day_index": day_index, "text": new_text})
+
+
 # ─── Routes: logs ─────────────────────────────────────────────────────────────
 
 @app.get("/api/logs")

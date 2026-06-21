@@ -156,6 +156,10 @@ def run_signal_agent(current_readings: dict, patient_profile: dict, client) -> d
         "You are a clinical signal monitoring agent in a post-discharge surveillance system. "
         "Analyze vital signs and flag acute anomalies. Be clinically precise — cite specific thresholds. "
         "Tailor your interpretation to the patient's primary condition (CHF, post-surgical, COPD, etc.). "
+        "Focus ONLY on live physiological signals: HR, SpO2, respiratory rate, temperature, blood pressure, "
+        "and sleep/movement data. Do NOT flag weight or fluid retention findings in acute_alerts or "
+        "borderline_concerns — weight trends belong to the Trend Agent. "
+        "The summary should be a concise interpretation of the current live vitals and sleep data only. "
         "Return valid JSON only."
     )
     # Pull live sensor values if provided (from the SSE stream feed)
@@ -206,6 +210,14 @@ Return JSON ONLY:
 
     result = _parse_json(_call(client, system, user, max_tokens=1500))
     result["_news2"] = news2
+    result["_vitals"] = {
+        "hr":   live_hr,
+        "rr":   live_rr,
+        "sbp":  live_sbp,
+        "dbp":  live_dbp,
+        "sleep_interruptions": current_readings.get("sleep_interruptions", 0),
+        "light_wake_count":    current_readings.get("light_wake_count", 0),
+    }
     return result
 
 
@@ -374,59 +386,92 @@ Return JSON ONLY:
   "severity": "low|medium|high|critical"
 }}"""
 
-    return _parse_json(_call(client, system, user, max_tokens=2500))
+    return _parse_json(_call(client, system, user, max_tokens=4000))
 
 
 def run_skeptic_agent(signal_out: dict, trend_out: dict, self_report_out: dict,
                       knowledge_out: dict, patient_profile: dict, client) -> dict:
     concerns = f"""
-SIGNAL: Alerts={signal_out.get('acute_alerts', [])} | Borderline={signal_out.get('borderline_concerns', [])}
+SIGNAL ALERTS: {signal_out.get('acute_alerts', [])}
+BORDERLINE: {signal_out.get('borderline_concerns', [])}
 NEWS2: {signal_out.get('news2_score', '?')}/15 ({signal_out.get('news2_risk_level', '?')} risk)
+VITAL SUMMARY: {signal_out.get('summary', '')}
 TRENDS: {trend_out.get('concerning_trends', [])}
-SELF-REPORT: {self_report_out.get('red_flag_phrases', [])} | Trajectory: {self_report_out.get('symptom_trajectory', '?')}
-GUIDELINES: {knowledge_out.get('red_flags_triggered', [])}
+TREND SUMMARY: {trend_out.get('summary', '')}
+SELF-REPORT QUOTES: {self_report_out.get('red_flag_phrases', [])}
+SELF-REPORT TRAJECTORY: {self_report_out.get('symptom_trajectory', '?')}
+GUIDELINES TRIGGERED: {knowledge_out.get('red_flags_triggered', [])}
+GUIDELINES APPROACHING: {knowledge_out.get('red_flags_approaching', [])}
 PATIENT MEDS: {', '.join(patient_profile['medications'])}
+CONDITION: {patient_profile.get('primary_condition', 'general')}
+AGE/SEX: {patient_profile.get('age', '?')}yo {patient_profile.get('sex', '?')}
 """
 
     system = (
-        "You are the Adversarial Skeptic Agent in a clinical AI system. "
-        "YOUR ROLE: Argue AGAINST premature escalation to prevent alert fatigue. "
-        "Find the most compelling benign explanations. Consider medication effects, "
-        "normal post-discharge variation, measurement artifact, patient baseline. "
-        "Be intellectually honest — rate argument strength. Note where skepticism fails. "
+        "You are the Adversarial Skeptic Agent in a multi-agent clinical AI debate system. "
+        "Your job: RIGOROUSLY argue against premature escalation to prevent alarm fatigue. "
+        "For each concerning finding, you MUST run a structured internal debate: "
+        "state the strongest possible benign hypothesis, then honestly and specifically dismantle it. "
+        "Do not be lazy — a weak hypothesis followed by a weak rebuttal is useless. "
+        "Force yourself to find the most medically plausible benign explanation (medication effect, "
+        "post-discharge recovery curve, diurnal variation, measurement artifact, anxiety amplification, "
+        "deconditioning, sleep disruption, dietary salt, environment). Then tear it apart using "
+        "the actual data. Be specific with numbers. "
+        "Your output feeds the final reconciler — it needs substance to weigh against the clinical signals. "
         "Return valid JSON only."
     )
-    user = f"""Challenge these clinical concerns. Find the best benign explanations.
+    user = f"""Run a rigorous structured debate on each concerning clinical finding.
+For every finding: argue it away, then rebut your own argument with the actual evidence.
 
-CONCERNING FINDINGS:
+FINDINGS TO DEBATE:
 {concerns}
+
+DEBATE RULES:
+- Hypothesis must be medically specific (cite mechanism, drug, or physiology — not vague)
+- Rebuttal must cite specific numbers/data from the findings above
+- Be intellectually honest: rate how well your hypothesis actually holds up
+- Cover at least 3-4 distinct findings
 
 Return JSON ONLY:
 {{
-  "counterarguments": [
+  "debate": [
     {{
-      "finding": "the concern being challenged",
-      "benign_explanation": "most compelling benign alternative",
-      "argument_strength": "strong|moderate|weak",
-      "what_would_confirm_benign": "evidence that would support this explanation"
+      "finding": "specific concern being debated (e.g. 'SpO2 91% — NEWS2 red flag')",
+      "hypothesis": "most compelling benign explanation — 2-3 sentences, cite mechanism or drug effect",
+      "evidence_for_hypothesis": "what in the data supports this benign view",
+      "rebuttal": "why this hypothesis fails — 2-3 sentences, cite specific numbers that contradict it",
+      "verdict": "hypothesis_holds|hypothesis_weakened|hypothesis_rejected",
+      "hypothesis_strength": "strong|moderate|weak"
     }}
   ],
-  "strongest_benign_case": "the single most compelling reason NOT to escalate",
-  "overall_benign_narrative": "most plausible non-alarming explanation for the overall picture",
+  "strongest_hypothesis": "the single best reason across all findings not to escalate — 1-2 sentences",
+  "strongest_hypothesis_debunked": "why even this best case ultimately fails given the full picture — 1-2 sentences",
+  "overall_benign_narrative": "most coherent non-alarming explanation for everything together — 2-3 sentences",
+  "overall_verdict": "escalation_warranted|watchful_wait|no_action",
   "skeptic_confidence": "low|moderate|high",
-  "where_skepticism_fails": "which findings genuinely cannot be explained away, and why?"
+  "where_skepticism_fails": "which findings genuinely cannot be explained away and precisely why — be specific"
 }}"""
 
-    result = _parse_json(_call(client, system, user, max_tokens=2000))
-    # Ensure skeptic always has a readable output — never return empty strings
-    if not result.get("strongest_benign_case"):
-        result["strongest_benign_case"] = "No compelling benign case identified — findings warrant clinical attention."
+    result = _parse_json(_call(client, system, user, max_tokens=5000))
+    if not result.get("strongest_hypothesis"):
+        result["strongest_hypothesis"] = result.pop("strongest_benign_case", "No compelling benign case — findings converge on clinical deterioration.")
+    if not result.get("debate") and result.get("counterarguments"):
+        # Migrate old format
+        result["debate"] = [
+            {
+                "finding": c.get("finding", ""),
+                "hypothesis": c.get("benign_explanation", ""),
+                "evidence_for_hypothesis": c.get("what_would_confirm_benign", ""),
+                "rebuttal": "See where_skepticism_fails.",
+                "verdict": "hypothesis_weakened",
+                "hypothesis_strength": c.get("argument_strength", "weak"),
+            }
+            for c in result["counterarguments"]
+        ]
     if not result.get("where_skepticism_fails"):
-        result["where_skepticism_fails"] = "All major findings appear clinically significant given the overall picture."
+        result["where_skepticism_fails"] = "Convergent signals from multiple sources reduce likelihood of benign explanation."
     if not result.get("overall_benign_narrative"):
-        result["overall_benign_narrative"] = "N/A — convergent signals from multiple sources reduce likelihood of benign explanation."
-    if not result.get("counterarguments"):
-        result["counterarguments"] = [{"finding": "Overall picture", "benign_explanation": "Not applicable — insufficient benign explanations identified.", "argument_strength": "weak", "what_would_confirm_benign": "Resolution of all flagged metrics within 24h"}]
+        result["overall_benign_narrative"] = "N/A — multi-source signal convergence."
     return result
 
 
@@ -445,10 +490,16 @@ Weight Δ={trends.get('weight_change_lbs_7days','?')} lbs | Activity −{trends.
 Patient red flags: {self_report_out.get('red_flag_phrases', [])}
 Trend convergence: {trend_out.get('trend_convergence', 'N/A')}
 """
+    debate_summary = "; ".join(
+        f"{r.get('finding','?')} → {r.get('verdict','?')}"
+        for r in (skeptic_out.get("debate") or [])
+    )
     evidence_against = f"""
 AGAINST: {skeptic_out.get('overall_benign_narrative', '')}
-Strongest benign case: {skeptic_out.get('strongest_benign_case', '')}
+Strongest benign case: {skeptic_out.get('strongest_hypothesis', skeptic_out.get('strongest_benign_case', ''))}
+Skeptic verdict: {skeptic_out.get('overall_verdict', 'N/A')}
 Skeptic confidence: {skeptic_out.get('skeptic_confidence', 'N/A')}
+Debate outcomes: {debate_summary or 'N/A'}
 Where skepticism fails: {skeptic_out.get('where_skepticism_fails', '')}
 """
 
@@ -625,6 +676,7 @@ Write the SBAR using EXACTLY this structure. RECOMMENDATION items must be on a s
 def extract_brief(agent_id: str, result) -> dict:
     """Pull display-critical fields out of each agent's full output."""
     if agent_id == "signal":
+        v = result.get("_vitals", {})
         return {
             "news2_score": result.get("news2_score"),
             "news2_risk": result.get("news2_risk_level"),
@@ -632,6 +684,12 @@ def extract_brief(agent_id: str, result) -> dict:
             "summary": result.get("summary", ""),
             "alerts": (result.get("acute_alerts") or [])[:3],
             "concerns": (result.get("borderline_concerns") or [])[:3],
+            "hr":  v.get("hr"),
+            "rr":  v.get("rr"),
+            "sbp": v.get("sbp"),
+            "dbp": v.get("dbp"),
+            "sleep_interruptions": v.get("sleep_interruptions", 0),
+            "light_wake_count":    v.get("light_wake_count", 0),
         }
     if agent_id == "trend":
         t = result.get("_trends", {})
@@ -652,18 +710,25 @@ def extract_brief(agent_id: str, result) -> dict:
             "red_flags": (result.get("red_flag_phrases") or [])[:3],
         }
     if agent_id == "knowledge":
+        raw_summary = result.get("summary", "")
+        # If _parse_json fell back to raw text, "summary" is JSON — strip it
+        safe_summary = "" if (result.get("_parse_error") or str(raw_summary).lstrip().startswith(("{", "["))) else raw_summary
         return {
             "severity": result.get("severity", "unknown"),
-            "summary": result.get("summary", ""),
+            "summary": safe_summary,
             "triggered": (result.get("red_flags_triggered") or [])[:3],
             "approaching": (result.get("red_flags_approaching") or [])[:2],
+            "most_applicable": result.get("most_applicable_guideline", ""),
+            "parse_error": bool(result.get("_parse_error")),
         }
     if agent_id == "skeptic":
         return {
-            "strongest_case": result.get("strongest_benign_case", ""),
+            "strongest_case": result.get("strongest_hypothesis", result.get("strongest_benign_case", "")),
+            "strongest_case_debunked": result.get("strongest_hypothesis_debunked", ""),
             "where_fails": result.get("where_skepticism_fails", ""),
+            "overall_verdict": result.get("overall_verdict", ""),
             "confidence": result.get("skeptic_confidence", "unknown"),
-            "top_counterarg": (result.get("counterarguments") or [{}])[0],
+            "debate": (result.get("debate") or [])[:5],
         }
     if agent_id == "reconciler":
         return {

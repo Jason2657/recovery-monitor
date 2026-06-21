@@ -1349,9 +1349,11 @@ function setAgentComplete(id, brief, elapsed) {
   if (!card) return;
   const meta = AGENT_META[id];
   const rawSev = brief.severity || brief.risk_level || '';
-  // Never show "unknown" — map to N/A visually
+  // Never show "unknown" — map to na visually; knowledge parse-error gets "—" not "N/A"
   const sev = rawSev && rawSev !== 'unknown' ? rawSev : 'na';
-  const displaySev = sev === 'na' ? 'N/A' : sev.toUpperCase();
+  const displaySev = sev === 'na'
+    ? (id === 'knowledge' && brief.parse_error ? '—' : 'N/A')
+    : sev.toUpperCase();
   card.className = `agent-card glass rounded-lg p-2 state-done-${sev === 'na' ? 'unknown' : sev}`;
   const color = SEV_COLORS[rawSev] || '#6b7280';
   let detail = '';
@@ -1359,21 +1361,210 @@ function setAgentComplete(id, brief, elapsed) {
   if (id === 'signal') {
     const n2 = brief.news2_score ?? '?';
     const alerts = (brief.alerts||[]).slice(0,1);
-    detail = `NEWS2 <strong style="color:${color}">${n2}/15</strong> ${brief.news2_risk||''}
-      ${alerts.map(a=>`· <span style="color:#fb923c">${esc(a)}</span>`).join('')}`;
+    // Vital readings row
+    const vParts = [];
+    if (brief.hr  != null) vParts.push(`HR <span style="color:#f9a8d4">${typeof brief.hr  === 'number' ? brief.hr.toFixed(1)  : brief.hr}</span>`);
+    if (brief.rr  != null) vParts.push(`RR <span style="color:#a78bfa">${typeof brief.rr  === 'number' ? brief.rr.toFixed(1)  : brief.rr}</span>`);
+    if (brief.sbp != null && brief.dbp != null)
+      vParts.push(`BP <span style="color:#67e8f9">${Math.round(brief.sbp)}/${Math.round(brief.dbp)}</span>`);
+    const totalWakes = (brief.sleep_interruptions || 0) + (brief.light_wake_count || 0);
+    vParts.push(`💤 <span style="color:${totalWakes > 3 ? '#fb923c' : '#94a3b8'}">${totalWakes} wakes</span>`);
+    const vitalsRow = vParts.length ? `<div class="flex flex-wrap gap-2 mt-0.5 text-xs">${vParts.map(v=>`<span>${v}</span>`).join('')}</div>` : '';
+    // Show agent's live-vitals summary; fall back to first non-weight alert
+    const weightRe = /weight|lbs|fluid|retention|furosemide/i;
+    const cleanAlert = alerts.find(a => !weightRe.test(a));
+    const analysisLine = brief.summary
+      ? `<div class="mt-1 text-slate-500" style="font-size:0.68rem;line-height:1.3">${esc(brief.summary)}</div>`
+      : cleanAlert
+        ? `<div class="mt-0.5" style="color:#fb923c">· ${esc(cleanAlert)}</div>`
+        : '';
+    detail = `<div>NEWS2 <strong style="color:${color}">${n2}/15</strong> <span class="text-slate-500 text-xs">${brief.news2_risk||''}</span></div>
+      ${vitalsRow}
+      ${analysisLine}`;
   } else if (id === 'trend') {
     const t = (brief.concerning_trends||[])[0] || 'No concerning trends';
     detail = `<span style="color:#fb923c">📈 ${esc(t)}</span>`;
   } else if (id === 'self_report') {
-    const traj = (brief.trajectory||'N/A').replace('_',' ');
-    const flag = (brief.red_flags||[])[0];
-    detail = `<span style="color:${color}">${traj}</span>${flag ? ` · "<em class="text-slate-500">${esc(flag.substring(0,50))}</em>"` : ''}`;
+    const traj  = (brief.trajectory||'N/A').replace('_',' ');
+    const flags = brief.red_flags || [];
+    // Word-boundary truncation helper
+    function truncWord(s, max) {
+      if (!s || s.length <= max) return esc(s);
+      const cut = s.lastIndexOf(' ', max);
+      return esc(cut > 10 ? s.substring(0, cut) : s.substring(0, max)) + '…';
+    }
+    const flagsHtml = flags.map(f =>
+      `<div style="color:#fb923c;font-size:0.67rem;line-height:1.35;margin-bottom:0.25rem;font-style:italic">"${esc(f)}"</div>`
+    ).join('');
+    const flagPreview = flags[0]
+      ? `<div style="color:#94a3b8;font-size:0.67rem;margin-top:0.2rem;font-style:italic">"${truncWord(flags[0], 60)}"</div>`
+      : '';
+    const dropdown = flags.length
+      ? `<details style="margin-top:0.3rem">
+           <summary style="font-size:0.67rem;color:#475569;cursor:pointer;list-style:none;user-select:none" onmouseover="this.style.color='#94a3b8'" onmouseout="this.style.color='#475569'">▸ Patient quotes (${flags.length})</summary>
+           <div style="padding-top:0.35rem">${flagsHtml}</div>
+         </details>`
+      : '';
+    detail = `<div><span style="color:${color};font-weight:600">${esc(traj)}</span></div>
+      ${flagPreview}
+      ${dropdown}`;
   } else if (id === 'knowledge') {
-    const t = (brief.triggered||[])[0] || 'No red flags triggered';
-    detail = `<span style="color:#f87171">✓ ${esc(t)}</span>`;
+    const triggered  = brief.triggered  || [];
+    const approaching = brief.approaching || [];
+    const summary    = brief.summary    || '';
+
+    // Guard against raw JSON leaking into the display (parse fallback artifact)
+    const safeSummary = summary && !summary.trim().startsWith('{') && !summary.trim().startsWith('[') ? summary : '';
+
+    // Primary line — never blank, never shows internal errors to users
+    const mostApplicable = brief.most_applicable || '';
+    const primaryText = triggered.length
+      ? `<span style="color:#f87171">⚑ ${esc(triggered[0])}</span>`
+      : approaching.length
+        ? `<span style="color:#fb923c">→ ${esc(approaching[0])}</span>`
+        : safeSummary
+          ? `<span style="color:#94a3b8">${esc(safeSummary.substring(0,90))}${safeSummary.length>90?'…':''}</span>`
+          : mostApplicable
+            ? `<span style="color:#94a3b8">📋 ${esc(mostApplicable.substring(0,85))}${mostApplicable.length>85?'…':''}</span>`
+            : `<span style="color:#6b7280">Guidelines &amp; evidence reviewed — see citations ↓</span>`;
+
+    // Evidence citations from research cache (already in browser)
+    const resData  = selectedPatient && selectedPatient._researchData;
+    const evidItems = resData ? (resData.evidence_highlights || []).slice(0, 3) : [];
+    const abstrMap  = {};
+    (resData && resData.pubmed_abstracts || []).forEach(a => { abstrMap[a.url] = a.snippet; });
+
+    const triggeredHtml = triggered.map(t =>
+      `<div style="display:flex;gap:0.35rem;align-items:start;margin-bottom:0.2rem">
+         <span style="color:#f87171;flex-shrink:0">⚑</span>
+         <span style="color:#fca5a5;font-size:0.67rem">${esc(t)}</span>
+       </div>`).join('');
+
+    const approachingHtml = approaching.map(a =>
+      `<div style="display:flex;gap:0.35rem;align-items:start;margin-bottom:0.2rem">
+         <span style="color:#fb923c;flex-shrink:0">→</span>
+         <span style="color:#fdba74;font-size:0.67rem">${esc(a)}</span>
+       </div>`).join('');
+
+    const evidHtml = evidItems.map(e => {
+      const domain  = e.url ? e.url.replace(/^https?:\/\/(www\.)?/,'').split('/')[0] : '';
+      const snippet = abstrMap[e.url] || '';
+      const quote   = snippet
+        ? `<blockquote style="color:#cbd5e1;font-style:italic;font-size:0.65rem;line-height:1.35;margin:0.3rem 0 0">"${esc(snippet.length>220?snippet.substring(0,220)+'…':snippet)}"</blockquote>`
+        : '';
+      return `<div style="border-left:2px solid #334155;padding-left:0.5rem;margin-top:0.45rem">
+        <div style="font-size:0.65rem;margin-bottom:0.1rem">
+          <span style="color:#60a5fa;font-weight:600">${esc(e.source||domain||'PubMed')}</span>
+          ${e.url?` · <a href="${esc(e.url)}" target="_blank" style="color:#818cf8;text-decoration:underline;font-size:0.63rem">${esc(domain)}</a>`:''}
+        </div>
+        ${e.key_finding?`<div style="color:#e2e8f0;font-size:0.65rem;line-height:1.3">${esc(e.key_finding)}</div>`:''}
+        ${quote}
+        ${e.clinical_relevance?`<div style="color:#a78bfa;font-size:0.63rem;margin-top:0.2rem">${esc(e.clinical_relevance)}</div>`:''}
+      </div>`;
+    }).join('');
+
+    const noCiteNote = !evidItems.length
+      ? `<div style="color:#475569;font-size:0.65rem;font-style:italic;margin-top:0.35rem">Run Medical Research to load cited sources.</div>`
+      : '';
+
+    const dropdownBody = [
+      triggeredHtml  ? `<div style="margin-bottom:0.3rem">${triggeredHtml}</div>` : '',
+      approachingHtml? `<div style="color:#94a3b8;font-size:0.63rem;margin-bottom:0.15rem;margin-top:${triggeredHtml?'0.4rem':'0'}">APPROACHING THRESHOLDS</div>${approachingHtml}` : '',
+      safeSummary    ? `<div style="color:#94a3b8;font-size:0.65rem;line-height:1.4;margin-top:0.45rem;padding-top:0.35rem;border-top:1px solid #1e293b">${esc(safeSummary)}</div>` : '',
+      evidHtml       ? `<div style="margin-top:0.5rem;padding-top:0.35rem;border-top:1px solid #1e293b"><div style="color:#94a3b8;font-size:0.63rem;font-weight:600;letter-spacing:0.04em;margin-bottom:0.1rem">CITED SOURCES</div>${evidHtml}</div>` : '',
+      noCiteNote,
+    ].filter(Boolean).join('');
+
+    detail = `${primaryText}
+      <details style="margin-top:0.35rem">
+        <summary style="font-size:0.67rem;color:#475569;cursor:pointer;list-style:none;user-select:none" onmouseover="this.style.color='#94a3b8'" onmouseout="this.style.color='#475569'">▸ Evidence &amp; citations</summary>
+        <div style="padding-top:0.4rem">${dropdownBody}</div>
+      </details>`;
   } else if (id === 'skeptic') {
-    const bc = (brief.strongest_case||'No benign case identified').substring(0,90);
-    detail = `<em class="text-slate-500">"${esc(bc)}"</em>`;
+    const debate   = brief.debate || [];
+    const verdict  = brief.overall_verdict || '';
+    const conf     = brief.confidence || '';
+    const strongest = brief.strongest_case || '';
+    const debunked  = brief.strongest_case_debunked || brief.where_fails || '';
+
+    // Verdict pill colour
+    const verdictColor = verdict === 'no_action' ? '#4ade80'
+      : verdict === 'watchful_wait' ? '#fb923c' : '#f87171';
+    const verdictLabel = verdict === 'escalation_warranted' ? 'Escalation warranted'
+      : verdict === 'watchful_wait' ? 'Watchful wait'
+      : verdict === 'no_action'     ? 'No action needed'
+      : 'Debate complete';
+
+    // Primary summary: strongest benign case → its debunking
+    const primaryLine = strongest
+      ? `<div style="color:#94a3b8;font-size:0.68rem;line-height:1.35;font-style:italic">"${esc(strongest)}"</div>
+         ${debunked ? `<div style="color:#f87171;font-size:0.67rem;margin-top:0.2rem">⚡ ${esc(debunked)}</div>` : ''}`
+      : `<span style="color:#6b7280;font-style:italic">No benign case identified.</span>`;
+
+    // Verdict badge row
+    const verdictRow = verdict
+      ? `<div style="display:flex;align-items:center;gap:0.4rem;margin-top:0.25rem">
+           <span style="background:${verdictColor}22;color:${verdictColor};font-size:0.62rem;font-weight:700;padding:0.1rem 0.45rem;border-radius:999px;border:1px solid ${verdictColor}44">${esc(verdictLabel)}</span>
+           ${conf ? `<span style="color:#475569;font-size:0.62rem">${esc(conf)} skeptic confidence</span>` : ''}
+         </div>`
+      : '';
+
+    // Verdict colour lookup per round
+    function roundVerdictStyle(v) {
+      return v === 'hypothesis_holds'    ? 'color:#4ade80'
+           : v === 'hypothesis_weakened' ? 'color:#fb923c'
+                                         : 'color:#f87171';
+    }
+    function roundVerdictLabel(v) {
+      return v === 'hypothesis_holds'    ? '✓ Holds'
+           : v === 'hypothesis_weakened' ? '~ Weakened'
+                                         : '✗ Rejected';
+    }
+    function strengthStyle(s) {
+      return s === 'strong' ? 'color:#4ade80' : s === 'moderate' ? 'color:#fb923c' : 'color:#94a3b8';
+    }
+
+    // Debate rounds
+    const debateHtml = debate.map((round, i) => `
+      <div style="border:1px solid #1e293b;border-radius:6px;padding:0.5rem;margin-top:${i===0?'0':'0.45rem'}">
+        <div style="font-size:0.65rem;font-weight:700;color:#64748b;margin-bottom:0.3rem;text-transform:uppercase;letter-spacing:0.04em">
+          Round ${i+1} · ${esc(round.finding || '')}
+        </div>
+        <!-- Hypothesis -->
+        <div style="display:flex;gap:0.35rem;margin-bottom:0.25rem">
+          <span style="flex-shrink:0;font-size:0.7rem">💭</span>
+          <div>
+            <span style="font-size:0.62rem;font-weight:600;${strengthStyle(round.hypothesis_strength)};text-transform:uppercase;margin-right:0.3rem">${esc(round.hypothesis_strength||'?')}</span>
+            <span style="color:#cbd5e1;font-size:0.67rem;line-height:1.35">${esc(round.hypothesis||'')}</span>
+            ${round.evidence_for_hypothesis ? `<div style="color:#64748b;font-size:0.64rem;margin-top:0.15rem;font-style:italic">${esc(round.evidence_for_hypothesis)}</div>` : ''}
+          </div>
+        </div>
+        <!-- Rebuttal -->
+        <div style="display:flex;gap:0.35rem;margin-bottom:0.3rem">
+          <span style="flex-shrink:0;font-size:0.7rem">⚡</span>
+          <span style="color:#fca5a5;font-size:0.67rem;line-height:1.35">${esc(round.rebuttal||'')}</span>
+        </div>
+        <!-- Verdict chip -->
+        <div style="font-size:0.63rem;font-weight:700;${roundVerdictStyle(round.verdict)}">${roundVerdictLabel(round.verdict)}</div>
+      </div>`).join('');
+
+    const whereFailsHtml = brief.where_fails
+      ? `<div style="margin-top:0.5rem;padding-top:0.4rem;border-top:1px solid #1e293b;color:#f87171;font-size:0.65rem;line-height:1.4">
+           <span style="font-weight:700;text-transform:uppercase;font-size:0.6rem;color:#94a3b8;display:block;margin-bottom:0.15rem">Where skepticism fails</span>
+           ${esc(brief.where_fails)}
+         </div>`
+      : '';
+
+    const dropdownContent = debateHtml || whereFailsHtml
+      ? `${debateHtml}${whereFailsHtml}`
+      : '<div style="color:#475569;font-size:0.65rem;font-style:italic">No debate rounds generated.</div>';
+
+    detail = `${primaryLine}
+      ${verdictRow}
+      <details style="margin-top:0.4rem">
+        <summary style="font-size:0.67rem;color:#475569;cursor:pointer;list-style:none;user-select:none" onmouseover="this.style.color='#94a3b8'" onmouseout="this.style.color='#475569'">▸ Full debate (${debate.length} rounds)</summary>
+        <div style="padding-top:0.4rem">${dropdownContent}</div>
+      </details>`;
   } else if (id === 'reconciler') {
     const sc = brief.risk_score ?? 'N/A';
     const conf = brief.confidence ? ` · ${brief.confidence} confidence` : '';

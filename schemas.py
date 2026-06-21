@@ -112,12 +112,18 @@ def risk_from_reconciler(reconciler_out: dict, *, trace_id: str | None = None) -
 
 
 def rebuttal_from_skeptic(skeptic_out: dict) -> SkepticRebuttal:
-    """Build a typed SkepticRebuttal from dev's skeptic dict."""
-    counterpoints = [
-        c.get("benign_explanation", "")
-        for c in (skeptic_out.get("counterarguments") or [])
-        if isinstance(c, dict)
-    ]
+    """Build a typed SkepticRebuttal from dev's skeptic dict (new debate schema + old format)."""
+    # New schema: debate[].hypothesis; old fallback: counterarguments[].benign_explanation
+    debate = skeptic_out.get("debate") or []
+    counterpoints = [r.get("hypothesis", "") for r in debate if isinstance(r, dict)]
+    if not counterpoints:
+        counterpoints = [
+            c.get("benign_explanation", "")
+            for c in (skeptic_out.get("counterarguments") or [])
+            if isinstance(c, dict)
+        ]
+    if skeptic_out.get("strongest_hypothesis"):
+        counterpoints.insert(0, skeptic_out["strongest_hypothesis"])
     confidence = str(skeptic_out.get("skeptic_confidence", "")).lower()
     strength = {"high": 0.8, "moderate": 0.5, "low": 0.2}.get(confidence, 0.3)
     return SkepticRebuttal(

@@ -85,6 +85,7 @@ if os.path.isdir("static"):
 
 # ─── In-memory caches ─────────────────────────────────────────────────────────
 last_results: dict = {}   # patient_id -> {risk_score, risk_level, timestamp}
+_live_cache:  dict = {}   # patient_id -> latest live payload from /api/live SSE
 
 # ─── Clients (lazy-init) ──────────────────────────────────────────────────────
 _anthropic_client: anthropic.Anthropic | None = None
@@ -466,6 +467,8 @@ async def live_stream(patient_id: str):
                 "condition":         condition,
                 "arduino_connected": _arduino_state["connected"],
             }
+            # Cache latest live readings so analyze can inject them into the pipeline
+            _live_cache[patient_id] = payload
             yield f"data: {json.dumps(payload)}\n\n"
             await asyncio.sleep(1)
             t += 1
@@ -508,8 +511,35 @@ async def analyze(patient_id: str, mesh: bool = False):
     def run_pipeline():
         from agents import run_full_pipeline
         try:
+            # Inject latest live readings (from the SSE stream) into the current
+            # sensor entry so the Signal Agent sees real-time vitals, not just
+            # the last recorded snapshot.
+            import copy
+            pipeline_data = copy.deepcopy(patient_data)
+            live = _live_cache.get(patient_id)
+            if live and pipeline_data.get("sensor_history"):
+                current = pipeline_data["sensor_history"][-1]
+                current["_live"] = {
+                    "hr":   live["hr"],
+                    "spo2": live["spo2"],
+                    "rr":   live["rr"],
+                    "temp": live["temp"],
+                    "sbp":  live["sbp"],
+                    "dbp":  live["dbp"],
+                }
+                # Carry live sleep/movement counts into the current entry
+                if live.get("light_wake_count", 0) > 0:
+                    current["light_wake_count"] = live["light_wake_count"]
+                if live.get("tilt_count", 0) > 0:
+                    current["sleep_interruptions"] = max(
+                        current.get("sleep_interruptions", 0),
+                        live["tilt_count"],
+                    )
+            else:
+                pipeline_data = patient_data
+
             full_log, log_file = run_full_pipeline(
-                patient_data, client,
+                pipeline_data, client,
                 callbacks={"on_start": on_start, "on_complete": on_complete},
                 log_dir="logs",
                 use_mesh=mesh,

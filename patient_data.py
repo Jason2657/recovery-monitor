@@ -114,6 +114,112 @@ CLINICAL_KNOWLEDGE_BASE = {
         ],
         "note": "2+ criteria = systemic inflammation. Can indicate infection, DVT, or other complications.",
     },
+    "escalation_protocol": {
+        "title": "Remote Patient Monitoring — Clinical Escalation Protocol",
+        "description": (
+            "Tiered escalation framework for post-discharge remote monitoring. "
+            "This protocol defines WHEN specific interventions would be clinically appropriate. "
+            "The AI system identifies the appropriate level and states what action would be indicated — "
+            "it does NOT take action itself. All clinical decisions remain with the care team."
+        ),
+        "levels": {
+            "LEVEL_0_ROUTINE": {
+                "label": "Routine Monitoring",
+                "triggers": [
+                    "NEWS2 0-2 with stable or improving trends",
+                    "No red flags from any data stream",
+                    "Patient self-reports feeling well",
+                    "Activity at or above discharge baseline",
+                ],
+                "recommendation": (
+                    "Continue standard remote monitoring schedule. "
+                    "No additional intervention is indicated at this time. "
+                    "Maintain scheduled follow-up appointment."
+                ),
+                "color": "green",
+            },
+            "LEVEL_1_ENHANCED": {
+                "label": "Enhanced Monitoring — Care Team Contact",
+                "triggers": [
+                    "NEWS2 3-4 OR single mild concerning trend in isolation",
+                    "CHF: weight gain 2-4 lbs in 1 week without other symptoms",
+                    "Activity decline 30-50% from post-discharge peak",
+                    "Patient reporting new but mild symptoms",
+                    "Single borderline vital sign not meeting NEWS2 threshold",
+                ],
+                "recommendation": (
+                    "It would be appropriate for the patient to contact their care coordinator "
+                    "or care team within 24-48 hours. A phone check-in or telehealth visit "
+                    "may be warranted to review medication adjustments."
+                ),
+                "color": "yellow",
+            },
+            "LEVEL_2_PHYSICIAN": {
+                "label": "Urgent — Physician Notification",
+                "triggers": [
+                    "NEWS2 5-6 OR multiple converging concerning trends",
+                    "CHF: weight gain >5 lbs in 1 week (AHA threshold)",
+                    "COPD: rescue inhaler use >4 puffs/day or escalating daily",
+                    "Post-surgical: fever >38.0°C trending upward after Day 3",
+                    "Activity decline >60% from post-discharge peak with symptoms",
+                    "Patient language indicating significant distress",
+                    "2+ SIRS criteria met",
+                ],
+                "recommendation": (
+                    "It would be appropriate to notify the attending physician or on-call provider "
+                    "within 2-4 hours. Do not wait for the next scheduled appointment. "
+                    "A same-day clinical evaluation or urgent telehealth visit is indicated."
+                ),
+                "color": "orange",
+            },
+            "LEVEL_3_EMERGENCY": {
+                "label": "Emergency — Activate Emergency Services",
+                "triggers": [
+                    "NEWS2 7+ (any single parameter score of 3 on top of elevated total)",
+                    "SpO2 <88% at rest on room air",
+                    "Heart rate >130 bpm or <40 bpm at rest",
+                    "Systolic BP <90 mmHg or >220 mmHg",
+                    "Patient reports chest pain, severe dyspnea, or altered consciousness",
+                    "Temperature <35.0°C (hypothermia) or >39.1°C",
+                    "Acute respiratory failure signs: accessory muscle use, cannot complete sentences",
+                    "Patient or caregiver expresses belief they are in immediate danger",
+                ],
+                "recommendation": (
+                    "It would be appropriate to activate emergency medical services (911) immediately. "
+                    "This presentation meets criteria for a clinical emergency requiring in-person "
+                    "evaluation and intervention that cannot safely be managed remotely. "
+                    "The patient should not drive themselves to the hospital."
+                ),
+                "color": "red",
+            },
+        },
+        "condition_overrides": {
+            "chf": [
+                "Weight gain >5 lbs/week → escalate to MINIMUM Level 2 regardless of NEWS2",
+                "Orthopnea (new pillows needed) + weight gain → escalate to Level 3",
+                "SpO2 <94% at rest → escalate to Level 2 minimum",
+            ],
+            "copd": [
+                "Rescue inhaler >4 puffs/day → escalate to Level 2 minimum",
+                "SpO2 <88% → escalate to Level 3 immediately",
+                "RR >25/min trending upward → escalate to Level 2",
+            ],
+            "post_surgical": [
+                "Fever >38.5°C after Day 3 with wound pain → escalate to Level 2",
+                "Rapidly spreading wound erythema → escalate to Level 3",
+                "Purulent wound drainage → escalate to Level 2 minimum",
+            ],
+            "general": [
+                "Apply NEWS2 thresholds and trend convergence as primary criteria",
+            ],
+        },
+        "important_caveat": (
+            "This AI system identifies what intervention WOULD BE APPROPRIATE based on clinical "
+            "guidelines. It does not contact physicians, call emergency services, or take any action. "
+            "All recommendations must be reviewed by a qualified clinician before action is taken. "
+            "When in doubt, escalate — missed deterioration carries greater risk than over-escalation."
+        ),
+    },
 }
 
 # ─── Patient 1: James Morrison — Post-ADHF, Day 7, HIGH risk ─────────────────

@@ -14,6 +14,8 @@ import asyncio
 import threading
 import queue
 import random
+import math
+import time
 import anthropic
 import httpx
 from dotenv import load_dotenv
@@ -33,7 +35,12 @@ last_results: dict = {}   # patient_id -> {risk_score, risk_level, timestamp}
 
 # ─── Clients (lazy-init) ──────────────────────────────────────────────────────
 _anthropic_client: anthropic.Anthropic | None = None
-DEEPGRAM_API_KEY = os.environ.get("DEEPGRAM_API_KEY", "")
+DEEPGRAM_API_KEY      = os.environ.get("DEEPGRAM_API_KEY", "")
+BROWSERBASE_API_KEY   = os.environ.get("BROWSERBASE_API_KEY", "")
+BROWSERBASE_PROJECT_ID = os.environ.get("BROWSERBASE_PROJECT_ID", "")
+
+# research results cache: patient_id -> dict
+research_cache: dict = {}
 
 
 def get_anthropic_client() -> anthropic.Anthropic:
@@ -108,6 +115,7 @@ async def status():
     return JSONResponse({
         "api_key_set": bool(api_key),
         "deepgram_key_set": bool(dg_key),
+        "browserbase_key_set": bool(os.environ.get("BROWSERBASE_API_KEY", "")),
         "model": "claude-opus-4-8",
     })
 
@@ -287,6 +295,119 @@ async def text_to_speech(request: Request):
     )
 
 
+# ─── Routes: live vitals streaming (SSE) ─────────────────────────────────────
+
+@app.get("/api/live/{patient_id}")
+async def live_stream(patient_id: str):
+    """
+    Stream simulated real-time vitals for a patient at 1 Hz.
+    Models a wearable + tilt sensor generating live data.
+    SSE format: one JSON object per second.
+    """
+    patients = all_patients()
+    if patient_id not in patients:
+        raise HTTPException(404, "Patient not found")
+
+    pdata = patients[patient_id]
+    profile = pdata["profile"]
+    latest = pdata["sensor_history"][-1] if pdata["sensor_history"] else {}
+    condition = profile.get("primary_condition", "general")
+
+    base_hr    = float(latest.get("hr_resting_bpm",    profile.get("baseline_hr_bpm",    72)))
+    base_spo2  = float(latest.get("spo2_pct",          profile.get("baseline_spo2_pct",  97)))
+    base_rr    = float(latest.get("rr_breaths_per_min", 16))
+    base_temp  = float(latest.get("temp_c",             37.0))
+    base_sbp   = float(latest.get("systolic_bp",        120))
+    base_dbp   = float(latest.get("diastolic_bp",        80))
+    sleep_ints = int(latest.get("sleep_interruptions",   2))
+
+    # Tilt sensor state machine
+    tilt_active   = False
+    tilt_count    = 0
+    tilt_cooldown = 0
+    tilt_timer    = 0
+
+    # HR drift — subtle slow oscillation to simulate activity/rest cycles
+    hr_drift = 0.0
+
+    async def generate():
+        nonlocal tilt_active, tilt_count, tilt_cooldown, tilt_timer, hr_drift
+        t = 0
+        while True:
+            # Cardiac variability: sine at ~0.1 Hz + Gaussian noise
+            hr_drift += random.gauss(0, 0.08)
+            hr_drift  = max(-8, min(8, hr_drift))   # bounded drift
+            hr = base_hr + hr_drift + 3.0 * math.sin(t * 0.07) + random.gauss(0, 1.2)
+            hr = round(max(38, min(200, hr)), 1)
+
+            spo2 = base_spo2 + random.gauss(0, 0.15)
+            spo2 = round(max(80, min(100, spo2)), 1)
+
+            rr = base_rr + random.gauss(0, 0.4)
+            rr = round(max(6, min(40, rr)), 1)
+
+            temp = base_temp + random.gauss(0, 0.04)
+            temp = round(max(34.0, min(42.0, temp)), 2)
+
+            sbp = base_sbp + random.gauss(0, 2.5)
+            dbp = base_dbp + random.gauss(0, 1.5)
+
+            # Tilt / sleep-disturbance sensor
+            tilt_cooldown = max(0, tilt_cooldown - 1)
+            if not tilt_active and tilt_cooldown == 0:
+                # Probability per second derived from expected interruptions per night (8h)
+                prob_per_sec = sleep_ints / (8 * 3600)
+                if random.random() < prob_per_sec * 20:   # ×20 to make demo visible
+                    tilt_active = True
+                    tilt_count += 1
+                    tilt_timer = random.randint(4, 18)
+            elif tilt_active:
+                tilt_timer -= 1
+                if tilt_timer <= 0:
+                    tilt_active = False
+                    tilt_cooldown = random.randint(45, 180)
+
+            # NEWS2 quick score for live display
+            news2 = 0
+            if rr <= 8 or rr >= 25: news2 += 3
+            elif 9 <= rr <= 11 or 21 <= rr <= 24: news2 += 2 if rr >= 21 else 1
+            if spo2 <= 91: news2 += 3
+            elif spo2 <= 93: news2 += 2
+            elif spo2 <= 95: news2 += 1
+            if sbp <= 90 or sbp >= 220: news2 += 3
+            elif sbp <= 100: news2 += 2
+            elif sbp <= 110: news2 += 1
+            if hr <= 40 or hr >= 131: news2 += 3
+            elif 111 <= hr <= 130: news2 += 2
+            elif (41 <= hr <= 50) or (91 <= hr <= 110): news2 += 1
+            if temp <= 35.0 or temp >= 39.1: news2 += (3 if temp <= 35.0 else 2)
+            elif 35.1 <= temp <= 36.0 or 38.1 <= temp <= 39.0: news2 += 1
+
+            payload = {
+                "t": t,
+                "timestamp": time.strftime("%H:%M:%S"),
+                "hr":   hr,
+                "spo2": spo2,
+                "rr":   rr,
+                "temp": temp,
+                "sbp":  round(sbp, 0),
+                "dbp":  round(dbp, 0),
+                "tilt_active": tilt_active,
+                "tilt_count":  tilt_count,
+                "news2_live":  news2,
+                "condition":   condition,
+            }
+            yield f"data: {json.dumps(payload)}\n\n"
+            await asyncio.sleep(1)
+            t += 1
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 # ─── Routes: analysis pipeline (SSE) ─────────────────────────────────────────
 
 @app.get("/api/analyze/{patient_id}")
@@ -323,6 +444,7 @@ async def analyze(patient_id: str, mesh: bool = False):
                 callbacks={"on_start": on_start, "on_complete": on_complete},
                 log_dir="logs",
                 use_mesh=mesh,
+                web_research=research_cache.get(patient_id),
             )
             last_results[patient_id] = {
                 "risk_score": full_log.get("risk_score", 0),
@@ -350,6 +472,10 @@ async def analyze(patient_id: str, mesh: bool = False):
                 "sbar": full_log.get("sbar", ""),
                 "recommended_action": full_log.get("recommended_action", ""),
                 "time_sensitivity": full_log.get("time_sensitivity", ""),
+                "escalation_level": full_log.get("escalation_level", 0),
+                "escalation_recommendation": full_log.get("escalation_recommendation", ""),
+                "web_research_incorporated": full_log.get("web_research_incorporated", False),
+                "web_research_sources": full_log.get("web_research_sources", []),
                 "log_file": log_file,
             })
         except Exception as exc:
@@ -371,6 +497,201 @@ async def analyze(patient_id: str, mesh: bool = False):
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+# ─── Routes: web research ─────────────────────────────────────────────────────
+
+@app.get("/api/research/{patient_id}")
+async def research(patient_id: str):
+    """
+    Stream medical web research for a patient via SSE.
+    Fetches PubMed articles + Mayo Clinic + Cleveland Clinic pages,
+    then synthesizes with Claude into structured clinical knowledge.
+    Results are cached in memory.
+    """
+    patients = all_patients()
+    if patient_id not in patients:
+        raise HTTPException(404, "Patient not found")
+
+    try:
+        client = get_anthropic_client()
+    except RuntimeError as e:
+        raise HTTPException(500, str(e))
+
+    profile = patients[patient_id]["profile"]
+    bb_key     = os.environ.get("BROWSERBASE_API_KEY", "")
+    bb_project = os.environ.get("BROWSERBASE_PROJECT_ID", "")
+
+    async def event_stream():
+        from web_research import research_patient
+
+        async def progress(source: str, status: str):
+            yield f"data: {json.dumps({'type': 'progress', 'source': source, 'status': status}, default=str)}\n\n"
+
+        # We need a generator-friendly callback
+        q: asyncio.Queue = asyncio.Queue()
+
+        async def cb(source: str, status: str):
+            await q.put({"type": "progress", "source": source, "status": status})
+
+        async def run_research():
+            try:
+                result = await research_patient(
+                    profile=profile,
+                    anthropic_client=client,
+                    bb_key=bb_key,
+                    bb_project=bb_project,
+                    progress_cb=cb,
+                )
+                research_cache[patient_id] = result
+                await q.put({"type": "research_complete", "data": result})
+            except Exception as e:
+                await q.put({"type": "error", "message": str(e)})
+
+        task = asyncio.create_task(run_research())
+
+        while True:
+            item = await q.get()
+            yield f"data: {json.dumps(item, default=str)}\n\n"
+            if item.get("type") in ("research_complete", "error"):
+                break
+
+        await task  # ensure cleanup
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@app.get("/api/research/{patient_id}/cached")
+async def get_cached_research(patient_id: str):
+    """Return cached research results without re-fetching."""
+    if patient_id not in research_cache:
+        raise HTTPException(404, "No research cached for this patient — run /api/research/{id} first")
+    return JSONResponse(research_cache[patient_id])
+
+
+@app.get("/api/research/{patient_id}/debug")
+async def debug_research(patient_id: str):
+    """Debug endpoint: returns cached research + log tail for diagnosing blank sections."""
+    result: dict = {"patient_id": patient_id, "cached": bool(patient_id in research_cache)}
+    if patient_id in research_cache:
+        r = research_cache[patient_id]
+        result["keys_present"] = list(r.keys())
+        result["diagnosis_context_preview"] = str(r.get("diagnosis_context", "MISSING"))[:200]
+        result["red_flags_count"] = len(r.get("red_flags") or [])
+        result["complications_count"] = len(r.get("common_complications") or [])
+        result["sources_fetched"] = r.get("sources_fetched", [])
+        result["raw_response_length"] = r.get("_raw_response_length", "not recorded")
+        result["has_error"] = bool(r.get("error"))
+    try:
+        with open("/tmp/postcareai_research.log") as f:
+            lines = f.readlines()
+        result["log_tail"] = "".join(lines[-30:])
+    except Exception:
+        result["log_tail"] = "log file not found"
+    return JSONResponse(result)
+
+
+# ─── Routes: simplify (plain-language rewrite for patients/families) ──────────
+
+@app.post("/api/simplify")
+async def simplify_text(req: Request):
+    """
+    Rewrite clinical text (SBAR or research summary) in patient-friendly plain English.
+    Body: { "text": "...", "type": "sbar"|"research" }
+    Returns: { "simplified": "..." }
+    """
+    body = await req.json()
+    text = (body.get("text") or "").strip()
+    content_type = body.get("type", "sbar")
+    if not text:
+        raise HTTPException(400, "text is required")
+    try:
+        client = get_anthropic_client()
+    except RuntimeError as e:
+        raise HTTPException(500, str(e))
+
+    if content_type == "sbar":
+        system = (
+            "You are rewriting a clinical SBAR handoff document so that a patient and their family can fully understand it.\n\n"
+            "FORMATTING RULES (follow exactly):\n"
+            "- Use these four section headers exactly: **SITUATION**, **BACKGROUND**, **ASSESSMENT**, **RECOMMENDATION**\n"
+            "- Do NOT use # or ## markdown headers\n"
+            "- RECOMMENDATION items must each be on a single line: '1. Within X hours: action'\n"
+            "- Use plain paragraphs inside each section — no sub-headers needed\n\n"
+            "LANGUAGE RULES:\n"
+            "- No medical abbreviations: 'heart rate' not 'HR', 'blood oxygen level' not 'SpO2', "
+            "'blood pressure' not 'BP', 'beats per minute' not 'bpm', 'pounds' not 'lbs'\n"
+            "- Explain what numbers mean (e.g. 'a blood oxygen level of 94% — healthy is above 95%')\n"
+            "- No Latin or medical jargon — if a term must be used, explain it in plain words immediately after\n"
+            "- Warm, honest, non-alarming tone — a worried grandmother should understand every sentence\n"
+            "- Keep all the same facts and recommendations, just in accessible language"
+        )
+    else:
+        system = (
+            "You are rewriting a medical research summary as a plain-English guide for a patient and their family.\n\n"
+            "FORMATTING RULES (follow exactly):\n"
+            "- Use a clear title: # [Condition Name]: A Guide for You and Your Family\n"
+            "- Use ## for main sections (e.g. ## What This Means, ## What to Watch For)\n"
+            "- Use - for bullet lists\n"
+            "- Keep the same information structure but in friendly, accessible language\n\n"
+            "LANGUAGE RULES:\n"
+            "- No medical abbreviations: spell out and briefly explain every term on first use\n"
+            "- Replace jargon with everyday words; use simple analogies where they help\n"
+            "- Keep a warm, supportive tone — a concerned grandparent should understand every sentence\n"
+            "- Convert clinical thresholds to plain language "
+            "(e.g. 'weigh yourself every morning — if you gain more than 5 pounds in a week, call your doctor')\n"
+            "- Never use percent signs without explaining what they mean in plain language"
+        )
+
+    from agents import MODEL
+    with client.messages.stream(
+        model=MODEL,
+        max_tokens=2500,
+        thinking={"type": "adaptive"},
+        system=system,
+        messages=[{"role": "user", "content": f"Rewrite this in patient-friendly language:\n\n{text}"}],
+    ) as stream:
+        msg = stream.get_final_message()
+
+    simplified = next((b.text for b in msg.content if b.type == "text"), "")
+    return JSONResponse({"simplified": simplified})
+
+
+@app.patch("/api/patients/{patient_id}/self_report")
+async def update_self_report(patient_id: str, req: Request):
+    """Update the latest self-report text for a patient (day index from request body)."""
+    _PROTECTED = {"PT-7421", "PT-3892", "PT-5163"}
+    if patient_id in _PROTECTED:
+        raise HTTPException(403, "Cannot modify built-in demo patients")
+    body = await req.json()
+    new_text = (body.get("text") or "").strip()
+    if not new_text:
+        raise HTTPException(400, "text is required")
+
+    patients = all_patients()
+    if patient_id not in patients:
+        raise HTTPException(404, "Patient not found")
+
+    patient = patients[patient_id]
+    reports = patient.get("self_reports", [])
+    if not reports:
+        raise HTTPException(400, "No self-reports to update")
+
+    day_index = body.get("day_index", len(reports) - 1)
+    if not (0 <= day_index < len(reports)):
+        day_index = len(reports) - 1
+    reports[day_index]["text"] = new_text
+    patient["self_reports"] = reports
+
+    path = os.path.join("data", "patients", f"{patient_id}.json")
+    with open(path, "w") as f:
+        json.dump(patient, f, indent=2)
+
+    return JSONResponse({"ok": True, "day_index": day_index, "text": new_text})
 
 
 # ─── Routes: logs ─────────────────────────────────────────────────────────────

@@ -18,3 +18,7 @@ uagents>=0.12.0
 # package and run `phoenix serve` to view traces in the local UI.
 arize-phoenix-otel>=0.6.0
 openinference-instrumentation-anthropic>=0.1.6
+
+# Web research (Browserbase browser automation + PubMed) — HTML parsing + browser
+beautifulsoup4>=4.12.0
+playwright>=1.40.0

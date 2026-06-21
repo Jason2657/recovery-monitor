@@ -281,7 +281,8 @@ Return JSON ONLY:
     return _parse_json(_call(client, system, user, max_tokens=2000))
 
 
-def run_knowledge_agent(signal_out: dict, trend_out: dict, self_report_out: dict, client) -> dict:
+def run_knowledge_agent(signal_out: dict, trend_out: dict, self_report_out: dict,
+                        client, web_research: dict = None) -> dict:
     news2 = signal_out.get("_news2", {})
     trends = trend_out.get("_trends", {})
 
@@ -300,11 +301,18 @@ KEY METRICS:
   Red flag phrases: {self_report_out.get('red_flag_phrases', [])}
 """
 
+    # Inject live web research if available
+    lit_context = ""
+    if web_research and not web_research.get("error"):
+        from web_research import format_for_agents
+        lit_context = "\n\n" + format_for_agents(web_research)
+
     system = (
         "You are a medical knowledge retrieval agent (RAG). "
-        "Apply the provided clinical knowledge base to the patient state. "
-        "Always cite specific criteria by name and threshold. Retrieve relevant guidelines "
-        "for the most applicable condition. Return valid JSON only."
+        "Apply the provided clinical knowledge base AND any literature research context to the patient state. "
+        "Always cite specific criteria by name and threshold. When literature context is present, "
+        "cross-reference it with the built-in guidelines and flag any additional risks it reveals. "
+        "Return valid JSON only."
     )
     user = f"""Apply clinical guidelines to this post-discharge patient state.
 
@@ -312,9 +320,10 @@ CURRENT STATE:
 {state}
 
 CLINICAL KNOWLEDGE BASE:
-{json.dumps(CLINICAL_KNOWLEDGE_BASE, indent=2)}
+{json.dumps(CLINICAL_KNOWLEDGE_BASE, indent=2)}{lit_context}
 
 Identify which specific criteria are triggered. Be precise — state the threshold and whether it is met.
+If literature research context is provided above, incorporate its complication thresholds and red flags.
 
 Return JSON ONLY:
 {{
@@ -401,41 +410,124 @@ Skeptic confidence: {skeptic_out.get('skeptic_confidence', 'N/A')}
 Where skepticism fails: {skeptic_out.get('where_skepticism_fails', '')}
 """
 
+    from patient_data import CLINICAL_KNOWLEDGE_BASE
+    escalation_kb = CLINICAL_KNOWLEDGE_BASE.get("escalation_protocol", {})
+    condition = patient_profile.get("primary_condition", "general")
+    condition_overrides = escalation_kb.get("condition_overrides", {}).get(condition, [])
+
+    # Count data quality for upstream agents to inform confidence level
+    upstream_parse_errors = sum(1 for o in [signal_out, trend_out, self_report_out, knowledge_out, skeptic_out]
+                                if o.get("_parse_error"))
+    data_days = len([r for r in patient_profile.get("sensor_history_ref", []) if r]) if "sensor_history_ref" in patient_profile else 7
+
     system = (
         "You are the Reconciler/Judge Agent — final arbiter of clinical escalation. "
         "Weigh ALL evidence from 5 independent data streams against the Skeptic's best arguments. "
         "Key principle: convergent evidence from MULTIPLE INDEPENDENT streams cannot all be coincidental "
-        "benign explanations simultaneously. Show your work explicitly. Return valid JSON only."
+        "benign explanations simultaneously. Show your work explicitly.\n\n"
+        "ESCALATION PROTOCOL (static clinical memory — apply to every assessment):\n"
+        "LEVEL 0 (Routine): NEWS2 0-2, stable trends → standard monitoring, scheduled follow-up only.\n"
+        "LEVEL 1 (Enhanced): NEWS2 3-4 OR single mild trend → it would be appropriate for patient to "
+        "contact care team within 24-48 hours.\n"
+        "LEVEL 2 (Urgent): NEWS2 5-6 OR multiple converging trends, CHF weight >5 lbs/week, "
+        "COPD rescue inhaler escalation → it would be appropriate to notify attending physician within 2-4 hours.\n"
+        "LEVEL 3 (Emergency): NEWS2 7+, SpO2 <88%, HR >130 or <40, systolic <90, acute chest pain, "
+        "severe dyspnea → it would be appropriate to activate emergency medical services (911) immediately.\n"
+        f"CONDITION-SPECIFIC OVERRIDES for {condition.upper()}: {'; '.join(condition_overrides)}\n\n"
+        "CONFIDENCE DEFINITION — score your own certainty:\n"
+        "  high   = all 5 upstream agents returned complete data, signals are internally consistent, "
+        "clear convergence across independent streams, no data gaps in sensor history.\n"
+        "  medium = 1-2 upstream agents had parse issues OR mild contradictions between agent outputs "
+        "OR ≤5 days of sensor history OR signals only partially converge.\n"
+        "  low    = 3+ upstream agents failed/had parse errors OR major contradictions OR <4 days data "
+        "OR signals completely diverge — assessment is a best-effort estimate under uncertainty.\n\n"
+        "IMPORTANT: The escalation_recommendation field must state what action 'would be appropriate' — "
+        "this system does NOT take action itself. All clinical decisions remain with the care team.\n"
+        "Return valid JSON only. Every field is required — never omit risk_score or risk_level."
     )
+    upstream_quality = f"Upstream agent errors: {upstream_parse_errors}/5 | Data days available: {days_post_discharge}"
     user = f"""Reconcile all evidence for {patient_profile['name']}, Day {days_post_discharge} post-{patient_profile['diagnosis']}.
 
 {evidence_for}
 {evidence_against}
 
-Weigh convergent evidence against skeptic counterarguments.
+DATA QUALITY: {upstream_quality}
 
-Return JSON ONLY:
+Weigh convergent evidence against skeptic counterarguments. You MUST assign a concrete risk_score (0-100) and risk_level — never leave these as null, 0 by default, or 'unknown'. Even with limited data, make a calibrated estimate and note uncertainty in confidence and rationale.
+
+Return JSON ONLY (all fields required):
 {{
-  "risk_score": <integer 0-100>,
+  "risk_score": <integer 1-100, never 0 unless truly no risk signal at all>,
   "risk_level": "low|moderate|high|critical",
-  "primary_drivers": ["driver 1 with supporting numbers", "driver 2 with supporting numbers"],
+  "primary_drivers": ["specific driver with supporting numbers", "second driver with numbers"],
   "mitigating_factors": ["valid skeptic point that appropriately reduced the score"],
   "convergence_argument": "why simultaneous trends across 5 independent streams outweigh individual benign explanations",
   "skeptic_rebuttal": "specific response to the skeptic's strongest argument",
-  "confidence": "low|medium|high",
-  "recommended_action": "specific clinical action",
+  "confidence": "low|medium|high (per the definitions above)",
+  "recommended_action": "specific clinical action in 1-2 sentences",
   "time_sensitivity": "immediately|within_4h|within_24h|within_48h|routine",
-  "rationale": "4-6 sentence explicit reasoning chain connecting evidence to risk score"
+  "escalation_level": <integer 0-3 matching the escalation protocol levels above>,
+  "escalation_recommendation": "Full text starting with 'it would be appropriate to...' — do NOT claim the AI takes action",
+  "rationale": "4-6 sentence explicit reasoning chain: data quality → signal convergence → score justification → confidence rationale"
 }}"""
 
-    return _parse_json(_call(client, system, user, max_tokens=2500))
+    result = _parse_json(_call(client, system, user, max_tokens=4000))
+
+    # Safety net: if parse failed or critical fields are missing, flag it clearly
+    if result.get("_parse_error") or result.get("risk_score") is None:
+        result["confidence"] = "low"
+        result["_assessment_note"] = "Parse error or missing fields — re-run analysis for accurate results"
+        if "risk_score" not in result or result.get("risk_score") is None:
+            result["risk_score"] = 0
+        if "risk_level" not in result:
+            result["risk_level"] = "unknown"
+
+    return result
 
 
-def run_brief_agent(reconciler_out: dict, patient_profile: dict, days_post_discharge: int, client) -> str:
+def run_brief_agent(reconciler_out: dict, patient_profile: dict, days_post_discharge: int,
+                    client, web_research: dict = None) -> str:
+    # Build optional research context block for the brief
+    lit_section = ""
+    if web_research and not web_research.get("error"):
+        flags = (web_research.get("red_flags") or [])[:5]
+        highlights = (web_research.get("evidence_highlights") or [])[:2]
+        sources = [s.get("name","") for s in (web_research.get("sources_fetched") or [])]
+        lit_section = f"""
+LITERATURE-BASED CONTEXT (incorporated from {', '.join(sources)}):
+{web_research.get('diagnosis_context', '')}
+
+Evidence-based red flags for this diagnosis:
+{chr(10).join(f'  • {f}' for f in flags)}
+
+Key findings:
+{chr(10).join(f'  [{e.get("source","?")}]: {e.get("key_finding","")}' for e in highlights)}
+
+Patient-specific risk narrative:
+{web_research.get('tailored_risk_narrative', '')[:500]}
+"""
+
+    assessment_note = reconciler_out.get("_assessment_note", "")
+    note_block = f"\n⚠ ASSESSMENT NOTE: {assessment_note}" if assessment_note else ""
+
     system = (
         "You are a Clinical Brief Agent. Convert AI risk assessments into SBAR format — "
         "the standard healthcare handoff format. Write for a care coordinator who needs to act. "
-        "Be specific: include numbers, dates, and exact action items with timeframes."
+        "Be specific: include numbers, dates, exact action items with timeframes. "
+        "When literature research context is provided, weave it into the brief to make "
+        "recommendations evidence-based and specific to this patient's diagnosis.\n\n"
+        "FORMATTING RULES — follow exactly:\n"
+        "1. Each section header is on its own line: **SITUATION**, **BACKGROUND**, **ASSESSMENT**, **RECOMMENDATION**\n"
+        "2. Section content immediately follows the header with one blank line between them\n"
+        "3. RECOMMENDATION items use this EXACT format — number, period, space, timeframe colon, action — ALL ON ONE LINE:\n"
+        "   1. Within 24 hours: [specific action referencing patient name and exact values]\n"
+        "   2. Daily: [monitoring action with threshold]\n"
+        "   3. Within 48 hours: [follow-up action]\n"
+        "   4. If [condition]: [contingency action]\n"
+        "   5. At next visit: [assessment action]\n"
+        "4. Do NOT put the number on one line and the content on the next line\n"
+        "5. Do NOT put the timeframe on one line and the action on the next line\n"
+        "6. The footnote line goes after the --- separator"
     )
     user = f"""Create an SBAR clinical brief.
 
@@ -444,7 +536,7 @@ PATIENT:
   Dx: {patient_profile['diagnosis']}
   Discharged: {patient_profile['discharge_date']} (Day {days_post_discharge} today)
   Meds: {', '.join(patient_profile['medications'])}
-  Baseline risk: {patient_profile['30day_readmission_risk']}
+  Baseline risk: {patient_profile['30day_readmission_risk']}{note_block}
 
 AI RISK ASSESSMENT:
   Score: {reconciler_out.get('risk_score', '?')}/100 — {str(reconciler_out.get('risk_level', '?')).upper()}
@@ -454,27 +546,31 @@ AI RISK ASSESSMENT:
   Action: {reconciler_out.get('recommended_action', '?')}
   Time sensitivity: {str(reconciler_out.get('time_sensitivity', '?')).replace('_', ' ').upper()}
   Rationale: {reconciler_out.get('rationale', '?')}
-
-Use EXACTLY this format:
+{lit_section}
+Write the SBAR using EXACTLY this structure. RECOMMENDATION items must be on a single line each:
 
 **SITUATION**
 [1-2 sentences: who, what concern, why reaching out now]
 
 **BACKGROUND**
-[2-3 sentences: relevant clinical context, key worsening metrics with numbers]
+[2-3 sentences: relevant clinical context, key worsening metrics with numbers, reference literature findings where relevant]
 
 **ASSESSMENT**
-[3-4 sentences: AI assessment with specific data points, risk score, top drivers]
+[3-4 sentences: AI assessment with specific data points, risk score, top drivers, cite any literature-based thresholds that are triggered]
 
 **RECOMMENDATION**
-[Numbered list of 4-5 specific action items with timeframes]
+1. Within [timeframe]: [action specific to this patient with exact values]
+2. [Timeframe]: [second action with threshold]
+3. [Timeframe]: [third action]
+4. If [condition occurs]: [contingency action]
+5. At [timeframe]: [follow-up assessment]
 
 ---
 *PostCare AI Monitor | {patient_profile['id']} | 2026-06-20 | {MODEL}*"""
 
     with client.messages.stream(
         model=MODEL,
-        max_tokens=1500,
+        max_tokens=3000,
         thinking={"type": "adaptive"},
         system=system,
         messages=[{"role": "user", "content": user}],
@@ -537,6 +633,8 @@ def extract_brief(agent_id: str, result) -> dict:
             "time_sensitivity": result.get("time_sensitivity", ""),
             "rationale": result.get("rationale", ""),
             "skeptic_rebuttal": result.get("skeptic_rebuttal", ""),
+            "escalation_level": result.get("escalation_level", 0),
+            "escalation_recommendation": result.get("escalation_recommendation", ""),
         }
     if agent_id == "brief":
         return {"text": result if isinstance(result, str) else ""}
@@ -555,6 +653,7 @@ def run_full_pipeline(
     log_dir: str = "logs",
     *,
     use_mesh: bool = False,
+    web_research: dict = None,
 ) -> tuple:
     """Run the governed 7-agent pipeline, saving full reasoning to a JSON log.
 
@@ -575,6 +674,8 @@ def run_full_pipeline(
         callbacks: {'on_start': fn(agent_id, label), 'on_complete': fn(agent_id, label, brief, elapsed)}
         log_dir: directory to write reasoning log
         use_mesh: route parallel analysis through the Fetch.ai uAgents mesh
+        web_research: optional structured research dict from web_research.research_patient()
+            — injected into the knowledge (RAG) agent and the SBAR brief when present
 
     Returns:
         (full_log dict, log_file_path string)
@@ -650,9 +751,9 @@ def run_full_pipeline(
                 analyses["signal"], analyses["trend"], analyses["self_report"]
             )
 
-        # --- medical knowledge (RAG) — depends on the three analyses ---
+        # --- medical knowledge (RAG) — depends on the three analyses + web research ---
         knowledge_out = step("knowledge", "Medical Knowledge (RAG)", run_knowledge_agent,
-                             signal_out, trend_out, self_report_out, client)
+                             signal_out, trend_out, self_report_out, client, web_research)
 
         # --- Band room: governed Skeptic <-> Reconciler deliberation (audited) ---
         band = get_band_room(audit=AuditLog(echo=False))
@@ -689,7 +790,7 @@ def run_full_pipeline(
 
         # --- clinician handoff (SBAR), always produced as the assessment doc ---
         sbar_text = step("brief", "Clinical Brief (SBAR)", run_brief_agent,
-                         reconciler_out, profile, days, client)
+                         reconciler_out, profile, days, client, web_research)
 
         # --- governed escalation action (Fetch.ai uAgent on the output path) ---
         _run_escalation_step(full_log, band.audit, gate, assessment, on_start, on_complete)
@@ -700,6 +801,12 @@ def run_full_pipeline(
     full_log["sbar"] = sbar_text if isinstance(sbar_text, str) else sbar_text.get("text", "")
     full_log["recommended_action"] = reconciler_out.get("recommended_action", "")
     full_log["time_sensitivity"] = reconciler_out.get("time_sensitivity", "")
+    full_log["escalation_level"] = reconciler_out.get("escalation_level", 0)
+    full_log["escalation_recommendation"] = reconciler_out.get("escalation_recommendation", "")
+    full_log["web_research_incorporated"] = bool(web_research and not web_research.get("error"))
+    full_log["web_research_sources"] = [
+        s.get("name") for s in (web_research or {}).get("sources_fetched", [])
+    ] if web_research else []
 
     # ---- governance + observability additions ----
     full_log["risk_score_normalized"] = round(assessment.risk_score, 3)

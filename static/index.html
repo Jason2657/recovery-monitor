@@ -39,6 +39,39 @@
     50%      { box-shadow: 0 0 24px rgba(59,130,246,0.55); }
   }
 
+  /* Live monitor */
+  .live-dot { width:8px; height:8px; border-radius:50%; background:#ef4444; animation:blink-red 1s ease-in-out infinite; flex-shrink:0; }
+  @keyframes blink-red { 0%,100%{opacity:1} 50%{opacity:0.25} }
+  .tilt-active-pill { background:rgba(239,68,68,0.18); color:#f87171; border:1px solid rgba(239,68,68,0.4); animation:pulse-red 1.1s ease-in-out infinite; }
+  .tilt-idle-pill   { background:rgba(34,197,94,0.12); color:#4ade80; border:1px solid rgba(34,197,94,0.25); }
+  @keyframes pulse-red { 0%,100%{box-shadow:0 0 0 0 rgba(239,68,68,0.35)} 50%{box-shadow:0 0 0 5px rgba(239,68,68,0)} }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .vital-tile { background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:10px; padding:10px 14px; text-align:center; }
+  .vital-value { font-size:1.4rem; font-weight:800; line-height:1.1; }
+  .vital-label { font-size:0.65rem; font-weight:600; color:#4b5563; text-transform:uppercase; letter-spacing:0.07em; margin-top:2px; }
+  .vital-unit  { font-size:0.65rem; color:#374151; margin-left:2px; }
+
+  /* Research panel */
+  .research-progress-row { display:flex; align-items:center; gap:8px; font-size:0.73rem; }
+  .research-progress-row .src-label { font-weight:600; color:#a78bfa; min-width:110px; flex-shrink:0; }
+  .research-progress-row .src-status { color:#6b7280; }
+  .research-progress-row.done .src-status { color:#4ade80; }
+  .research-progress-row.error .src-status { color:#f87171; }
+  .complication-card { background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.07); border-radius:10px; padding:12px 14px; }
+  .evidence-card { background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.07); border-radius:10px; padding:12px 14px; }
+  .source-pill { font-size:0.7rem; px:8px; padding:3px 10px; border-radius:20px; }
+  .source-journal  { background:rgba(251,191,36,0.12); color:#fbbf24; border:1px solid rgba(251,191,36,0.25); }
+  .source-clinical { background:rgba(16,185,129,0.12); color:#34d399; border:1px solid rgba(16,185,129,0.25); }
+
+  /* Escalation levels */
+  .esc-0 { border-color:rgba(34,197,94,0.4);  background:rgba(34,197,94,0.07); }
+  .esc-1 { border-color:rgba(234,179,8,0.4);  background:rgba(234,179,8,0.07); }
+  .esc-2 { border-color:rgba(249,115,22,0.5); background:rgba(249,115,22,0.08); }
+  .esc-3 { border-color:rgba(239,68,68,0.55); background:rgba(239,68,68,0.1); animation:pulse-escalation 2s ease-in-out infinite; }
+  @keyframes pulse-escalation { 0%,100%{box-shadow:0 0 0 0 rgba(239,68,68,0.2)} 50%{box-shadow:0 0 0 8px rgba(239,68,68,0)} }
+  .esc-icon-0 { color:#4ade80; } .esc-icon-1 { color:#facc15; } .esc-icon-2 { color:#fb923c; } .esc-icon-3 { color:#f87171; }
+  .esc-label-0 { color:#4ade80; } .esc-label-1 { color:#facc15; } .esc-label-2 { color:#fb923c; } .esc-label-3 { color:#f87171; }
+
   /* Severity badges */
   .badge-low      { background:rgba(34,197,94,0.14);  color:#4ade80; border:1px solid rgba(34,197,94,0.28); }
   .badge-medium   { background:rgba(245,158,11,0.14); color:#fbbf24; border:1px solid rgba(245,158,11,0.28); }
@@ -57,12 +90,40 @@
   .sparkline-card { background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:10px; padding:11px 14px; }
 
   /* SBAR formatting */
-  .sbar-content strong { color:#93c5fd; font-weight:600; display:block; margin-top:0.9rem; font-size:0.72rem; letter-spacing:0.09em; text-transform:uppercase; }
-  .sbar-content p { line-height:1.75; color:#c8d0e0; }
-  .sbar-content ol { padding-left:1.25rem; }
-  .sbar-content li { line-height:1.7; color:#c8d0e0; }
-  .sbar-content hr { border-color:rgba(255,255,255,0.08); margin:1rem 0; }
+  .sbar-section-hdr {
+    display:flex; align-items:center; gap:8px;
+    font-size:0.67rem; font-weight:700; letter-spacing:0.11em; text-transform:uppercase;
+    color:#93c5fd; margin-top:1.2rem; margin-bottom:0.45rem; padding-bottom:0.3rem;
+    border-bottom:1px solid rgba(147,197,253,0.15);
+  }
+  .sbar-section-hdr::before { content:''; display:inline-block; width:3px; height:12px; border-radius:2px; background:#93c5fd; opacity:0.7; }
+  .sbar-content p { line-height:1.8; color:#c8d0e0; margin:0 0 0.5rem 0; }
+  .sbar-list { padding-left:0; margin:0.25rem 0 0.5rem 0; list-style:none; counter-reset:sbar-counter; }
+  .sbar-list li {
+    counter-increment:sbar-counter; position:relative;
+    padding:0.55rem 0.75rem 0.55rem 2.6rem; margin-bottom:0.4rem;
+    background:rgba(255,255,255,0.025); border-radius:8px; border:1px solid rgba(255,255,255,0.05);
+    line-height:1.65; color:#c8d0e0; font-size:0.84rem;
+  }
+  .sbar-list li::before {
+    content:counter(sbar-counter);
+    position:absolute; left:0.75rem; top:50%; transform:translateY(-50%);
+    width:18px; height:18px; border-radius:50%; background:rgba(147,197,253,0.18);
+    color:#93c5fd; font-size:0.68rem; font-weight:700;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .sbar-list li strong { color:#dbeafe; font-weight:600; }
+  .sbar-content hr { border:none; border-top:1px solid rgba(255,255,255,0.07); margin:1rem 0; }
   .sbar-content em { color:#6b7280; font-style:italic; font-size:0.78rem; }
+  .sbar-footnote { color:#4b5563 !important; font-size:0.75rem !important; margin-top:0.5rem !important; }
+
+  /* Mode toggle (Clinical / Patient-Friendly) */
+  .mode-toggle-group { display:flex; gap:3px; background:rgba(255,255,255,0.04); border-radius:8px; padding:3px; border:1px solid rgba(255,255,255,0.07); }
+  .mode-btn { padding:3px 10px; border-radius:6px; font-size:0.7rem; font-weight:600; cursor:pointer; transition:all 0.15s; color:#6b7280; background:transparent; border:none; white-space:nowrap; }
+  .mode-btn.active { background:rgba(59,130,246,0.2); color:#93c5fd; border:1px solid rgba(59,130,246,0.35); }
+  .mode-btn:hover:not(.active) { color:#94a3b8; background:rgba(255,255,255,0.04); }
+  .simplify-loading { display:inline-flex; align-items:center; gap:6px; font-size:0.72rem; color:#fbbf24; }
+  .simplify-loading::before { content:''; width:10px; height:10px; border:2px solid #fbbf24; border-top-color:transparent; border-radius:50%; animation:spin 0.7s linear infinite; display:inline-block; }
 
   /* Form inputs in new-patient modal */
   .np-input {
@@ -127,6 +188,7 @@
     <span class="mono text-xs text-slate-500">claude-opus-4-8</span>
     <!-- Deepgram indicator -->
     <span id="dg-badge" class="hidden text-xs px-2 py-0.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 font-medium">DG</span>
+    <span id="bb-badge" class="hidden text-xs px-2 py-0.5 rounded-full border border-violet-500/30 bg-violet-500/10 text-violet-400 font-medium">BB</span>
     <div class="flex items-center gap-1.5">
       <span id="status-dot" class="w-2 h-2 rounded-full bg-slate-600"></span>
       <span id="status-text" class="text-xs text-slate-500">Loading…</span>
@@ -197,6 +259,16 @@
               <input type="checkbox" id="mesh-toggle" class="accent-teal-400">
               <span>⬡ Fetch mesh</span>
             </label>
+            <button id="research-btn" onclick="openResearch()"
+              class="flex items-center gap-1.5 px-4 py-2.5 rounded-xl font-semibold text-sm transition-all"
+              style="background:rgba(139,92,246,0.12);color:#a78bfa;border:1px solid rgba(139,92,246,0.3)">
+              🔬 Research
+            </button>
+            <button id="live-btn" onclick="toggleLiveMonitor()"
+              class="flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-sm transition-all"
+              style="background:rgba(239,68,68,0.12);color:#f87171;border:1px solid rgba(239,68,68,0.3)">
+              <span class="live-dot"></span> Live
+            </button>
             <button id="run-btn" onclick="runAnalysis()"
               class="px-5 py-2.5 rounded-xl font-semibold text-sm text-white transition-all"
               style="background:linear-gradient(135deg,#3b82f6,#6366f1);box-shadow:0 4px 20px rgba(99,102,241,0.35)">
@@ -212,16 +284,173 @@
         <div id="sparkline-grid" class="grid grid-cols-2 md:grid-cols-4 gap-2.5"></div>
       </div>
 
-      <!-- Self-report + TTS -->
+      <!-- Live Monitor Panel -->
+      <div id="live-monitor" class="hidden fade-in">
+        <div class="glass rounded-2xl overflow-hidden border border-red-500/20">
+          <!-- Header -->
+          <div class="flex items-center justify-between px-5 py-3 border-b border-white/5" style="background:rgba(239,68,68,0.05)">
+            <div class="flex items-center gap-2.5">
+              <span class="live-dot"></span>
+              <span class="text-sm font-semibold text-white">Live Patient Monitor</span>
+              <span class="mono text-xs text-slate-500" id="live-timestamp">--:--:--</span>
+            </div>
+            <div class="flex items-center gap-3">
+              <span class="text-xs text-slate-500">NEWS2 Live:</span>
+              <span id="live-news2" class="mono text-sm font-bold text-slate-300">–</span>
+              <button onclick="toggleLiveMonitor()" class="text-slate-600 hover:text-slate-300 transition-colors text-lg leading-none ml-2">×</button>
+            </div>
+          </div>
+
+          <div class="p-5 space-y-4">
+            <!-- BPM rolling chart -->
+            <div>
+              <div class="flex items-center justify-between mb-2">
+                <span class="text-xs font-semibold text-slate-500 uppercase tracking-widest">Heart Rate (BPM) — 60s Rolling</span>
+                <span id="live-hr-value" class="text-2xl font-bold text-white mono">–</span>
+              </div>
+              <canvas id="live-hr-canvas" width="800" height="90"
+                style="width:100%;height:90px;border-radius:10px;background:rgba(0,0,0,0.3);display:block"></canvas>
+              <div class="flex justify-between mt-1 text-xs text-slate-700 mono">
+                <span>60s ago</span><span>30s ago</span><span>now</span>
+              </div>
+            </div>
+
+            <!-- Vital tiles row -->
+            <div class="grid grid-cols-3 md:grid-cols-6 gap-2">
+              <div class="vital-tile">
+                <div class="vital-value text-blue-400" id="lv-spo2">–</div>
+                <div class="vital-label">SpO₂ <span class="vital-unit">%</span></div>
+              </div>
+              <div class="vital-tile">
+                <div class="vital-value text-violet-400" id="lv-rr">–</div>
+                <div class="vital-label">Resp Rate <span class="vital-unit">/min</span></div>
+              </div>
+              <div class="vital-tile">
+                <div class="vital-value text-pink-400" id="lv-temp">–</div>
+                <div class="vital-label">Temp <span class="vital-unit">°C</span></div>
+              </div>
+              <div class="vital-tile">
+                <div class="vital-value text-cyan-400" id="lv-sbp">–</div>
+                <div class="vital-label">Sys BP <span class="vital-unit">mmHg</span></div>
+              </div>
+              <div class="vital-tile">
+                <div class="vital-value text-slate-400" id="lv-dbp">–</div>
+                <div class="vital-label">Dia BP <span class="vital-unit">mmHg</span></div>
+              </div>
+              <!-- Tilt sensor tile -->
+              <div class="vital-tile flex flex-col items-center justify-center gap-1.5">
+                <div id="tilt-pill" class="tilt-idle-pill text-xs font-bold px-2.5 py-1 rounded-full transition-all">● Stable</div>
+                <div class="vital-label">Tilt Sensor</div>
+                <div class="text-xs text-slate-500"><span id="tilt-count">0</span> disturbances</div>
+              </div>
+            </div>
+
+            <!-- Tilt event log -->
+            <div>
+              <p class="text-xs font-semibold text-slate-600 uppercase tracking-widest mb-1.5">Sleep Disturbance Log (tilt sensor)</p>
+              <div id="tilt-log" class="space-y-1 max-h-24 overflow-y-auto">
+                <p class="text-xs text-slate-700 italic">No disturbances recorded yet.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Research Panel -->
+      <div id="research-panel" class="hidden fade-in">
+        <div class="glass rounded-2xl overflow-hidden border border-violet-500/20">
+          <div class="flex flex-wrap items-center justify-between gap-2 px-5 py-3 border-b border-white/5" style="background:rgba(139,92,246,0.05)">
+            <div class="flex items-center gap-2.5">
+              <span class="text-base">🔬</span>
+              <span class="text-sm font-semibold text-white">Medical Research</span>
+              <span class="text-xs text-slate-500" id="research-subtitle">PubMed · NIH · Cleveland Clinic</span>
+            </div>
+            <div class="flex items-center gap-2 flex-wrap">
+              <div class="mode-toggle-group" id="res-mode-group">
+                <button class="mode-btn active" id="res-mode-clinical" onclick="setResearchMode('clinical')">🔬 Clinical</button>
+                <button class="mode-btn" id="res-mode-simple" onclick="setResearchMode('simple')">👵 Patient-Friendly</button>
+              </div>
+              <button id="research-rerun-btn" onclick="runResearch()" class="hidden text-xs text-violet-400 hover:text-violet-300 transition-colors">↺ Re-fetch</button>
+              <button onclick="closeResearch()" class="text-slate-600 hover:text-slate-300 transition-colors text-lg leading-none">×</button>
+            </div>
+          </div>
+          <div id="res-simplify-status" class="hidden px-5 py-2"></div>
+
+          <!-- Progress stream -->
+          <div id="research-progress" class="px-5 py-4 space-y-1.5">
+            <p class="text-xs text-slate-500 text-center py-4">Click <span class="text-violet-400 font-medium">🔬 Research</span> to fetch literature tailored to this patient's diagnosis.</p>
+          </div>
+
+          <!-- Results (hidden until complete) -->
+          <div id="research-results" class="hidden px-5 pb-5 space-y-5">
+
+            <!-- Diagnosis context -->
+            <div class="rounded-xl p-4 border border-violet-500/15" style="background:rgba(139,92,246,0.06)">
+              <p class="text-xs font-semibold text-violet-400 uppercase tracking-widest mb-2">Diagnosis Overview</p>
+              <p id="res-context" class="text-sm text-slate-300 leading-relaxed"></p>
+              <p id="res-surgery-reason" class="text-sm text-slate-400 leading-relaxed mt-2 italic"></p>
+            </div>
+
+            <!-- Recovery timeline -->
+            <div>
+              <p class="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-2.5">Evidence-Based Recovery Timeline</p>
+              <div class="grid grid-cols-3 gap-2.5" id="res-timeline"></div>
+            </div>
+
+            <!-- Complications -->
+            <div>
+              <p class="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-2.5">Common Post-Discharge Complications</p>
+              <div id="res-complications" class="space-y-2"></div>
+            </div>
+
+            <!-- Red flags -->
+            <div class="rounded-xl p-4 border border-red-500/20" style="background:rgba(239,68,68,0.05)">
+              <p class="text-xs font-semibold text-red-400 uppercase tracking-widest mb-2">🚨 Red Flags From Literature</p>
+              <ul id="res-redflags" class="space-y-1.5"></ul>
+            </div>
+
+            <!-- Evidence highlights -->
+            <div>
+              <p class="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-2.5">Evidence Highlights</p>
+              <div id="res-evidence" class="space-y-2"></div>
+            </div>
+
+            <!-- Tailored narrative -->
+            <div class="rounded-xl p-4 border border-blue-500/15" style="background:rgba(59,130,246,0.05)">
+              <div class="flex items-center justify-between mb-2">
+                <p class="text-xs font-semibold text-blue-400 uppercase tracking-widest">Patient-Specific Risk Narrative</p>
+                <button onclick="playResearchNarrative()" class="tts-btn flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium">🔊 Play</button>
+              </div>
+              <div id="res-narrative" class="text-sm text-slate-300 leading-relaxed space-y-2"></div>
+            </div>
+
+            <!-- Sources -->
+            <div>
+              <p class="text-xs font-semibold text-slate-600 uppercase tracking-widest mb-2">Sources Fetched</p>
+              <div id="res-sources" class="flex flex-wrap gap-2"></div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+      <!-- Self-report + TTS + STT -->
       <div class="glass rounded-xl p-4 fade-in">
         <div class="flex items-center justify-between mb-2">
           <p class="text-xs font-semibold text-slate-500 uppercase tracking-widest">Today's Patient Check-In</p>
-          <button id="tts-report-btn" onclick="playCurrentReport()"
-            class="tts-btn flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium">
-            🔊 Play
-          </button>
+          <div class="flex items-center gap-1.5">
+            <button id="stt-report-btn" onclick="recordSelfReport()"
+              class="rec-btn idle flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium">
+              🎤 Record
+            </button>
+            <button id="tts-report-btn" onclick="playCurrentReport()"
+              class="tts-btn flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium">
+              🔊 Play
+            </button>
+          </div>
         </div>
         <p id="pt-report" class="text-sm text-slate-300 italic leading-relaxed"></p>
+        <p id="stt-report-status" class="hidden text-xs text-amber-400 mt-1"></p>
       </div>
 
       <!-- Pipeline -->
@@ -273,6 +502,19 @@
                 <p id="risk-action-text" class="font-semibold"></p>
                 <p id="risk-timing-text" class="text-xs mt-0.5 text-slate-400"></p>
               </div>
+              <!-- Escalation recommendation -->
+              <div id="escalation-box" class="hidden rounded-xl p-4 border mt-3">
+                <div class="flex items-center gap-2.5 mb-2">
+                  <span id="esc-icon" class="text-xl"></span>
+                  <div>
+                    <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider leading-none">Escalation Protocol</p>
+                    <p id="esc-label" class="text-sm font-bold mt-0.5"></p>
+                  </div>
+                  <span id="esc-level-badge" class="ml-auto text-xs font-bold px-2 py-0.5 rounded-full border"></span>
+                </div>
+                <p id="esc-text" class="text-sm leading-relaxed text-slate-300"></p>
+                <p class="text-xs text-slate-600 mt-2 italic">⚠ This system identifies what would be clinically appropriate — it does not take action. All decisions remain with the care team.</p>
+              </div>
             </div>
           </div>
         </div>
@@ -294,15 +536,21 @@
 
         <!-- SBAR -->
         <div id="sbar-section" class="hidden fade-in mt-5">
-          <div class="flex items-center justify-between mb-2.5">
+          <div class="flex flex-wrap items-center justify-between gap-2 mb-2.5">
             <p class="text-xs font-semibold text-slate-500 uppercase tracking-widest">SBAR Clinical Brief</p>
-            <div class="flex gap-2">
+            <div class="flex items-center gap-2 flex-wrap">
+              <!-- Mode toggle -->
+              <div class="mode-toggle-group" id="sbar-mode-group">
+                <button class="mode-btn active" id="sbar-mode-clinical" onclick="setSbarMode('clinical')">🩺 Clinical</button>
+                <button class="mode-btn" id="sbar-mode-simple" onclick="setSbarMode('simple')">👵 Patient-Friendly</button>
+              </div>
               <button onclick="playSbar()" class="tts-btn text-xs px-2.5 py-1 rounded-lg font-medium">🔊 Play</button>
               <button onclick="copySbar()" class="text-xs text-blue-400 hover:text-blue-300 transition-colors">Copy</button>
             </div>
           </div>
+          <div id="sbar-simplify-status" class="hidden mb-2"></div>
           <div class="glass rounded-2xl p-6">
-            <div id="sbar-content" class="sbar-content text-sm space-y-1 leading-relaxed"></div>
+            <div id="sbar-content" class="sbar-content text-sm leading-relaxed"></div>
           </div>
         </div>
       </div><!-- /pipeline-section -->
@@ -503,6 +751,15 @@
 
 <!-- ══════════════════════════════════════════════════════════════════════════ -->
 <script>
+// ─── Live monitor state ───────────────────────────────────────────────────────
+let liveES = null;           // EventSource for live stream
+let liveActive = false;
+const HR_WINDOW = 60;        // seconds of history on the rolling chart
+const hrBuffer = [];         // {t, hr} rolling buffer
+let tiltEvents = [];         // timestamps of tilt events
+let liveCanvas = null;
+let liveCtx = null;
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 const AGENT_META = {
   signal:      { icon:'⚡', label:'Signal',          desc:'Acute anomaly detection' },
@@ -563,6 +820,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
   deepgramEnabled = !!st.deepgram_key_set;
   if (deepgramEnabled) document.getElementById('dg-badge').classList.remove('hidden');
+  if (st.browserbase_key_set) document.getElementById('bb-badge').classList.remove('hidden');
 
   document.getElementById('dg-status-note').textContent =
     deepgramEnabled ? '🟢 Deepgram ready' : '⚠ No DEEPGRAM_API_KEY — typing only';
@@ -623,6 +881,18 @@ async function selectPatient(pid) {
   document.getElementById('pipeline-section').classList.add('hidden');
   document.getElementById('risk-section').classList.add('hidden');
   document.getElementById('sbar-section').classList.add('hidden');
+  document.getElementById('escalation-box').classList.add('hidden');
+  // Stop live monitor when switching patients
+  if (liveActive) { stopLiveMonitor(); document.getElementById('live-monitor').classList.add('hidden'); }
+  // Close research panel and reset caches on patient switch
+  document.getElementById('research-panel').classList.add('hidden');
+  researchMode = 'clinical'; researchSimpleCache = '';
+  document.getElementById('res-mode-clinical').classList.add('active');
+  document.getElementById('res-mode-simple').classList.remove('active');
+  document.getElementById('res-simplify-status').classList.add('hidden');
+  // Reset SBAR mode caches
+  sbarMode = 'clinical'; currentSbarSimple = '';
+  document.getElementById('sbar-simplify-status').classList.add('hidden');
 
   // Fill header
   document.getElementById('pt-name').textContent = selectedPatient.name;
@@ -735,7 +1005,181 @@ function playCurrentReport() {
 }
 
 function playSbar() {
-  playText(currentSbar, null);
+  const active = sbarMode === 'simple' && currentSbarSimple ? currentSbarSimple : currentSbar;
+  playText(active, null);
+}
+
+function playResearchNarrative() {
+  const narr = document.getElementById('res-narrative').innerText || '';
+  playText(narr, null);
+}
+
+// ─── Research mode (clinical ↔ patient-friendly) ──────────────────────────────
+let researchMode = 'clinical';
+let researchSimpleCache = '';   // cached simplified research text
+
+function setResearchMode(mode) {
+  if (mode === researchMode) return;
+  researchMode = mode;
+  document.getElementById('res-mode-clinical').classList.toggle('active', mode === 'clinical');
+  document.getElementById('res-mode-simple').classList.toggle('active', mode === 'simple');
+
+  const resultsEl = document.getElementById('research-results');
+  const statusEl  = document.getElementById('res-simplify-status');
+
+  if (mode === 'clinical') {
+    statusEl.classList.add('hidden');
+    // Un-hide all research cards (showSimpleResearch hides them)
+    Array.from(resultsEl.children).forEach(el => {
+      el.style.display = el.id === 'simple-research-card' ? 'none' : '';
+    });
+    if (selectedPatient && selectedPatient._researchData) {
+      resultsEl.classList.remove('hidden');
+      renderResearch(selectedPatient._researchData);
+    }
+    return;
+  }
+
+  // Patient-Friendly mode — show simplified plain-text overlay
+  if (researchSimpleCache) {
+    showSimpleResearch(researchSimpleCache);
+    return;
+  }
+  if (!selectedPatient || !selectedPatient._researchData) return;
+
+  // Build a compact text version of the research to simplify
+  const r = selectedPatient._researchData;
+  const toSimplify = [
+    `Diagnosis: ${r.diagnosis || ''}\n${r.diagnosis_context || ''}`,
+    `Recovery timeline:\nWeek 1: ${(r.recovery_timeline || {}).week_1 || ''}\nWeek 2: ${(r.recovery_timeline || {}).week_2 || ''}\nMonth 1: ${(r.recovery_timeline || {}).month_1 || ''}`,
+    `Common complications:\n${(r.common_complications || []).map(c => `- ${c.name}: ${(c.warning_signs||[]).join(', ')}`).join('\n')}`,
+    `Warning signs:\n${(r.red_flags || []).map(f => `- ${f}`).join('\n')}`,
+    `What the research says:\n${(r.evidence_highlights || []).map(e => `[${e.source}]: ${e.key_finding}`).join('\n')}`,
+    `Risk summary:\n${r.tailored_risk_narrative || ''}`,
+  ].join('\n\n');
+
+  statusEl.classList.remove('hidden');
+  statusEl.innerHTML = '<span class="simplify-loading px-5">Generating patient-friendly version…</span>';
+
+  fetch('/api/simplify', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({text: toSimplify, type: 'research'}),
+  })
+    .then(r => r.json())
+    .then(d => {
+      researchSimpleCache = d.simplified || '';
+      statusEl.classList.add('hidden');
+      showSimpleResearch(researchSimpleCache);
+    })
+    .catch(() => {
+      statusEl.innerHTML = '<span class="text-xs text-red-400 px-5">Could not simplify — showing clinical view.</span>';
+      researchMode = 'clinical';
+      document.getElementById('res-mode-clinical').classList.add('active');
+      document.getElementById('res-mode-simple').classList.remove('active');
+    });
+}
+
+function showSimpleResearch(text) {
+  const resultsEl = document.getElementById('research-results');
+  resultsEl.classList.remove('hidden');
+  // Hide all clinical sections, show only the simple card
+  Array.from(resultsEl.children).forEach(el => {
+    el.style.display = el.id === 'simple-research-card' ? '' : 'none';
+  });
+  const existing = resultsEl.querySelector('#simple-research-card');
+  const rendered = formatSbar(text);   // handles # headers, ## sections, - bullets, **bold**
+  if (existing) {
+    existing.style.display = '';
+    existing.querySelector('.simple-text').innerHTML = rendered;
+    return;
+  }
+  const card = document.createElement('div');
+  card.id = 'simple-research-card';
+  card.className = 'rounded-xl p-5 border border-blue-500/15 fade-in';
+  card.style.background = 'rgba(59,130,246,0.05)';
+  card.innerHTML = `
+    <div class="flex items-center justify-between mb-3">
+      <p class="text-xs font-semibold text-blue-400 uppercase tracking-widest">👵 Patient-Friendly Guide</p>
+      <button onclick="playText(document.querySelector('#simple-research-card .simple-text').innerText, null)"
+        class="tts-btn flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium">🔊 Play</button>
+    </div>
+    <div class="simple-text sbar-content text-sm leading-relaxed">${rendered}</div>`;
+  resultsEl.appendChild(card);
+}
+
+// ─── Self-report voice recording (main patient view) ─────────────────────────
+let selfReportRecorder = null;
+let selfReportChunks = [];
+
+async function recordSelfReport() {
+  const btn = document.getElementById('stt-report-btn');
+  const status = document.getElementById('stt-report-status');
+
+  if (selfReportRecorder && selfReportRecorder.state === 'recording') {
+    // Stop recording
+    selfReportRecorder.stop();
+    btn.className = 'rec-btn transcribing flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium';
+    btn.textContent = '⏳ Transcribing…';
+    btn.disabled = true;
+    return;
+  }
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const mimeType = ['audio/webm;codecs=opus','audio/webm','audio/ogg','audio/mp4']
+      .find(t => MediaRecorder.isTypeSupported(t)) || '';
+    selfReportRecorder = new MediaRecorder(stream, mimeType ? {mimeType} : {});
+    selfReportChunks = [];
+
+    selfReportRecorder.ondataavailable = e => { if (e.data.size > 0) selfReportChunks.push(e.data); };
+
+    selfReportRecorder.onstop = async () => {
+      stream.getTracks().forEach(t => t.stop());
+      const blob = new Blob(selfReportChunks, { type: selfReportRecorder.mimeType || 'audio/webm' });
+      try {
+        const res = await fetch('/api/transcribe', { method:'POST', body: blob,
+          headers:{'Content-Type': selfReportRecorder.mimeType || 'audio/webm'} });
+        const data = await res.json();
+        const transcript = data.transcript || '';
+        if (transcript) {
+          document.getElementById('pt-report').textContent = `"${transcript}"`;
+          status.textContent = '✓ Updated from voice recording';
+          status.classList.remove('hidden');
+          setTimeout(() => status.classList.add('hidden'), 4000);
+          // Save to patient file if not a protected demo patient
+          if (selectedPatient && !['PT-7421','PT-3892','PT-5163'].includes(selectedPatient.id)) {
+            fetch(`/api/patients/${selectedPatient.id}/self_report`, {
+              method: 'PATCH',
+              headers: {'Content-Type':'application/json'},
+              body: JSON.stringify({ text: transcript }),
+            }).catch(() => {});
+          }
+        } else {
+          status.textContent = '⚠ Could not transcribe — try again';
+          status.classList.remove('hidden');
+          setTimeout(() => status.classList.add('hidden'), 4000);
+        }
+      } catch (e) {
+        status.textContent = `⚠ Transcription error: ${e.message}`;
+        status.classList.remove('hidden');
+        setTimeout(() => status.classList.add('hidden'), 5000);
+      }
+      btn.className = 'rec-btn idle flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium';
+      btn.textContent = '🎤 Record';
+      btn.disabled = false;
+    };
+
+    selfReportRecorder.start();
+    btn.className = 'rec-btn recording flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium';
+    btn.textContent = '⏹ Stop';
+    status.textContent = 'Recording… click Stop when done';
+    status.classList.remove('hidden');
+  } catch (e) {
+    status.textContent = `⚠ Microphone error: ${e.message}`;
+    status.classList.remove('hidden');
+    setTimeout(() => status.classList.add('hidden'), 5000);
+  }
 }
 
 // ─── Agent cards ──────────────────────────────────────────────────────────────
@@ -848,6 +1292,9 @@ function runAnalysis() {
   document.getElementById('risk-section').classList.add('hidden');
   document.getElementById('sbar-section').classList.add('hidden');
   document.getElementById('governance-section').classList.add('hidden');
+  // Reset mode caches for new analysis
+  currentSbarSimple = ''; sbarMode = 'clinical';
+  document.getElementById('sbar-simplify-status').classList.add('hidden');
   resetPipeline();
 
   const useMesh = document.getElementById('mesh-toggle')?.checked;
@@ -859,6 +1306,14 @@ function runAnalysis() {
     else if (d.type === 'governance') renderGovernance(d);
     else if (d.type === 'pipeline_complete') {
       renderRisk(d); renderSbar(d.sbar);
+      renderEscalation(d.escalation_level ?? 0, d.escalation_recommendation ?? '');
+      if (d.web_research_incorporated) {
+        const src = (d.web_research_sources || []).join(', ');
+        const note = document.createElement('p');
+        note.className = 'text-xs text-violet-400 mt-2';
+        note.innerHTML = `🔬 Literature incorporated: <span class="text-slate-400">${esc(src)}</span>`;
+        document.getElementById('sbar-section').prepend(note);
+      }
       es.close(); finishRun(d);
     } else if (d.type === 'error') {
       showError(d.message); es.close(); finishRun(null);
@@ -925,27 +1380,389 @@ function buildGauge(score, level) {
   </svg>`;
 }
 
+// ─── SBAR mode state ──────────────────────────────────────────────────────────
+let sbarMode = 'clinical';      // 'clinical' | 'simple'
+let currentSbarSimple = '';     // cached simplified version
+
 function renderSbar(text) {
   if (!text) return;
   currentSbar = text;
+  currentSbarSimple = '';       // reset simplified cache on new analysis
+  sbarMode = 'clinical';
+  document.getElementById('sbar-mode-clinical').classList.add('active');
+  document.getElementById('sbar-mode-simple').classList.remove('active');
   document.getElementById('sbar-section').classList.remove('hidden');
   document.getElementById('sbar-content').innerHTML = formatSbar(text);
 }
 
+function setSbarMode(mode) {
+  if (mode === sbarMode) return;
+  sbarMode = mode;
+  document.getElementById('sbar-mode-clinical').classList.toggle('active', mode === 'clinical');
+  document.getElementById('sbar-mode-simple').classList.toggle('active', mode === 'simple');
+
+  if (mode === 'clinical') {
+    document.getElementById('sbar-content').innerHTML = formatSbar(currentSbar);
+    document.getElementById('sbar-simplify-status').classList.add('hidden');
+    return;
+  }
+
+  // Patient-Friendly mode
+  if (currentSbarSimple) {
+    document.getElementById('sbar-content').innerHTML = formatSbar(currentSbarSimple);
+    return;
+  }
+  // Need to generate
+  const statusEl = document.getElementById('sbar-simplify-status');
+  statusEl.classList.remove('hidden');
+  statusEl.innerHTML = '<span class="simplify-loading">Generating patient-friendly version…</span>';
+
+  fetch('/api/simplify', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({text: currentSbar, type: 'sbar'}),
+  })
+    .then(r => r.json())
+    .then(d => {
+      currentSbarSimple = d.simplified || '';
+      document.getElementById('sbar-content').innerHTML = formatSbar(currentSbarSimple || currentSbar);
+      statusEl.classList.add('hidden');
+    })
+    .catch(() => {
+      statusEl.innerHTML = '<span class="text-xs text-red-400">Could not simplify — showing clinical version.</span>';
+      document.getElementById('sbar-content').innerHTML = formatSbar(currentSbar);
+    });
+}
+
+// ─── Shared markdown/SBAR renderer ───────────────────────────────────────────
+// Handles both clinical SBAR (**SECTION** headers, numbered sbar-list)
+// and patient-friendly markdown (# Title, ## Section, - bullets, 1. lists).
 function formatSbar(text) {
+  if (!text) return '';
+  const lines = text.replace(/\r\n/g, '\n').replace(/\n{3,}/g, '\n\n').split('\n');
+
+  // Pre-pass: merge orphaned numbered items ("1.\nWithin 24h:\ncontent" → "1. Within 24h: content")
+  const merged = [];
+  for (let i = 0; i < lines.length; i++) {
+    const numOnly = lines[i].match(/^(\d+)\.\s*$/);
+    if (numOnly && i + 1 < lines.length) {
+      let combined = numOnly[1] + '. ';
+      let j = i + 1;
+      while (j < lines.length && lines[j].trim() === '') j++;
+      while (j < lines.length && lines[j].trim() !== '' &&
+             !lines[j].match(/^\d+\.\s*$/) &&
+             !lines[j].match(/^\*\*[A-Z]/) &&
+             !lines[j].match(/^#{1,3} /)) {
+        combined += lines[j].trim() + ' ';
+        j++;
+      }
+      merged.push(combined.trim());
+      i = j - 1;
+    } else {
+      merged.push(lines[i]);
+    }
+  }
+
+  let html = '';
+  let inOl = false, inUl = false;
+
+  const closeOl = () => { if (inOl) { html += '</ol>'; inOl = false; } };
+  const closeUl = () => { if (inUl) { html += '</ul>'; inUl = false; } };
+  const closeLists = () => { closeOl(); closeUl(); };
+
+  for (let i = 0; i < merged.length; i++) {
+    const line = merged[i].trim();
+
+    // Markdown H1: # Title  →  large section header (used by patient-friendly mode)
+    if (/^# .+/.test(line)) {
+      closeLists();
+      html += `<h2 class="text-base font-bold text-white mt-5 mb-2 pb-1.5" style="border-bottom:1px solid rgba(255,255,255,0.08)">${inlineFmt(line.slice(2))}</h2>`;
+      continue;
+    }
+
+    // Markdown H2: ## Subsection
+    if (/^## .+/.test(line)) {
+      closeLists();
+      html += `<div class="sbar-section-hdr mt-3">${inlineFmt(line.slice(3))}</div>`;
+      continue;
+    }
+
+    // Markdown H3: ### Minor heading
+    if (/^### .+/.test(line)) {
+      closeLists();
+      html += `<p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mt-2 mb-0.5">${inlineFmt(line.slice(4))}</p>`;
+      continue;
+    }
+
+    // SBAR section headers: **SITUATION**, **BACKGROUND**, **ASSESSMENT**, **RECOMMENDATION**
+    const sbarHdr = line.match(/^\*\*([A-Z][A-Z\s\/]+)\*\*\s*$/);
+    if (sbarHdr) {
+      closeLists();
+      html += `<div class="sbar-section-hdr">${sbarHdr[1]}</div>`;
+      continue;
+    }
+
+    // HR
+    if (line === '---' || line === '***' || line === '___') {
+      closeLists();
+      html += '<hr>';
+      continue;
+    }
+
+    // Numbered list: "1. text" — inside SBAR uses styled sbar-list, elsewhere plain
+    const numItem = line.match(/^(\d+)\.\s+(.+)$/);
+    if (numItem) {
+      closeUl();
+      if (!inOl) { html += '<ol class="sbar-list">'; inOl = true; }
+      const content = numItem[2].replace(/^([^:]+:\s*)/, '<strong>$1</strong>');
+      html += `<li>${inlineFmt(content)}</li>`;
+      continue;
+    }
+
+    // Unordered list: "- item" or "* item"
+    const ulItem = line.match(/^[-*+]\s+(.+)$/);
+    if (ulItem) {
+      closeOl();
+      if (!inUl) { html += '<ul class="my-1.5 space-y-1">'; inUl = true; }
+      html += `<li class="flex gap-2 text-sm text-slate-300 leading-relaxed"><span class="text-blue-400/60 flex-shrink-0 mt-0.5">•</span><span>${inlineFmt(ulItem[1])}</span></li>`;
+      continue;
+    }
+
+    // Empty line
+    if (!line) {
+      closeLists();
+      continue;
+    }
+
+    closeLists();
+
+    // Italic footnote *text* (not **bold**)
+    if (line.startsWith('*') && line.endsWith('*') && !line.startsWith('**')) {
+      html += `<p class="sbar-footnote">${inlineFmt(line.slice(1, -1))}</p>`;
+    } else {
+      html += `<p>${inlineFmt(line)}</p>`;
+    }
+  }
+  closeLists();
+  return html;
+}
+
+function inlineFmt(text) {
+  // Bold before italic so **text** isn't confused with *text*
   return text
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-    .replace(/^---$/gm, '<hr>')
     .replace(/\*([^*]+)\*/g, '<em>$1</em>')
-    .replace(/\n\n+/g, '</p><p>')
-    .replace(/\n/g, '<br>');
+    .replace(/`([^`]+)`/g, '<code style="background:rgba(255,255,255,0.07);padding:1px 5px;border-radius:4px;font-size:0.82em">$1</code>');
 }
 
 function copySbar() {
-  navigator.clipboard.writeText(currentSbar).then(() => {
-    const btn = document.querySelector('#sbar-section button:last-child');
+  const active = sbarMode === 'simple' && currentSbarSimple ? currentSbarSimple : currentSbar;
+  navigator.clipboard.writeText(active).then(() => {
+    const btn = document.querySelector('#sbar-section .flex.gap-2 button:last-child');
     if (btn) { btn.textContent='Copied!'; btn.style.color='#4ade80'; setTimeout(()=>{btn.textContent='Copy';btn.style.color='';},2000); }
   });
+}
+
+// ─── Live monitor ─────────────────────────────────────────────────────────────
+function toggleLiveMonitor() {
+  if (!selectedPatient) return;
+  const panel = document.getElementById('live-monitor');
+  if (liveActive) {
+    stopLiveMonitor();
+    panel.classList.add('hidden');
+  } else {
+    panel.classList.remove('hidden');
+    startLiveMonitor(selectedPatient.id);
+  }
+}
+
+function startLiveMonitor(pid) {
+  if (liveES) { liveES.close(); }
+  hrBuffer.length = 0;
+  tiltEvents = [];
+  liveActive = true;
+
+  // Init canvas
+  liveCanvas = document.getElementById('live-hr-canvas');
+  liveCtx    = liveCanvas.getContext('2d');
+
+  // Set internal resolution to match display size
+  const rect = liveCanvas.getBoundingClientRect();
+  liveCanvas.width  = rect.width  * window.devicePixelRatio || 800;
+  liveCanvas.height = rect.height * window.devicePixelRatio || 90;
+
+  // Update tilt log to empty
+  document.getElementById('tilt-log').innerHTML = '<p class="text-xs text-slate-700 italic">No disturbances recorded yet.</p>';
+  document.getElementById('tilt-count').textContent = '0';
+
+  liveES = new EventSource(`/api/live/${pid}`);
+  liveES.onmessage = (e) => {
+    let d; try { d = JSON.parse(e.data); } catch { return; }
+    onLiveData(d);
+  };
+  liveES.onerror = () => { };  // silently retry; server keeps streaming
+}
+
+function stopLiveMonitor() {
+  liveActive = false;
+  if (liveES) { liveES.close(); liveES = null; }
+}
+
+function onLiveData(d) {
+  // Rolling HR buffer (keep last HR_WINDOW seconds)
+  hrBuffer.push({t: d.t, hr: d.hr});
+  if (hrBuffer.length > HR_WINDOW) hrBuffer.shift();
+
+  // Update timestamp + NEWS2
+  document.getElementById('live-timestamp').textContent = d.timestamp;
+  document.getElementById('live-news2').textContent     = d.news2_live;
+  document.getElementById('live-news2').style.color     = news2Color(d.news2_live);
+
+  // Update HR value
+  const hrEl = document.getElementById('live-hr-value');
+  hrEl.textContent  = d.hr;
+  hrEl.style.color  = hrColor(d.hr);
+
+  // Update vital tiles
+  document.getElementById('lv-spo2').textContent = d.spo2;
+  document.getElementById('lv-spo2').style.color = d.spo2 < 92 ? '#f87171' : d.spo2 < 95 ? '#fb923c' : '#60a5fa';
+  document.getElementById('lv-rr').textContent   = d.rr;
+  document.getElementById('lv-rr').style.color   = d.rr > 24 ? '#f87171' : d.rr > 20 ? '#fb923c' : '#a78bfa';
+  document.getElementById('lv-temp').textContent = d.temp.toFixed(1);
+  document.getElementById('lv-temp').style.color = d.temp > 38.5 ? '#f87171' : d.temp > 38.0 ? '#fb923c' : '#f472b6';
+  document.getElementById('lv-sbp').textContent  = d.sbp;
+  document.getElementById('lv-sbp').style.color  = d.sbp > 180 || d.sbp < 90 ? '#f87171' : '#67e8f9';
+  document.getElementById('lv-dbp').textContent  = d.dbp;
+
+  // Tilt sensor
+  const pill = document.getElementById('tilt-pill');
+  if (d.tilt_active) {
+    pill.className = 'tilt-active-pill text-xs font-bold px-2.5 py-1 rounded-full transition-all';
+    pill.textContent = '⚡ DISTURBANCE';
+    // Log new event
+    const cnt = parseInt(document.getElementById('tilt-count').textContent);
+    if (d.tilt_count > cnt) {
+      tiltEvents.unshift(d.timestamp);
+      updateTiltLog(d.tilt_count);
+    }
+  } else {
+    pill.className = 'tilt-idle-pill text-xs font-bold px-2.5 py-1 rounded-full transition-all';
+    pill.textContent = '● Stable';
+  }
+  document.getElementById('tilt-count').textContent = d.tilt_count;
+
+  // Redraw rolling chart
+  drawHrChart(d.hr);
+}
+
+function updateTiltLog(count) {
+  const log = document.getElementById('tilt-log');
+  const events = tiltEvents.slice(0, 8);
+  log.innerHTML = events.map((ts, i) =>
+    `<div class="flex items-center gap-2 text-xs py-0.5">
+      <span class="w-1.5 h-1.5 rounded-full bg-red-500 flex-shrink-0"></span>
+      <span class="text-slate-500 mono">${ts}</span>
+      <span class="text-slate-600">Sleep disturbance detected (tilt sensor)</span>
+    </div>`
+  ).join('');
+}
+
+function drawHrChart(currentHr) {
+  if (!liveCanvas || !liveCtx) return;
+  const W = liveCanvas.width, H = liveCanvas.height;
+  const ctx = liveCtx;
+  const dpr = window.devicePixelRatio || 1;
+
+  ctx.clearRect(0, 0, W, H);
+
+  if (hrBuffer.length < 2) return;
+
+  // Dynamic range: patient's typical range ±20 bpm, minimum 40-160
+  const hrs = hrBuffer.map(p => p.hr);
+  const mn = Math.min(...hrs, currentHr) - 5;
+  const mx = Math.max(...hrs, currentHr) + 5;
+
+  // Threshold zones (horizontal bands)
+  const y130 = H - ((130 - mn) / (mx - mn)) * H;
+  const y100 = H - ((100 - mn) / (mx - mn)) * H;
+  const yClamp = (v) => Math.max(2, Math.min(H-2, H - ((v - mn) / (mx - mn)) * H));
+
+  // Zone fills
+  ctx.fillStyle = 'rgba(239,68,68,0.06)';
+  ctx.fillRect(0, 0, W, Math.max(0, y130));
+  ctx.fillStyle = 'rgba(245,158,11,0.05)';
+  ctx.fillRect(0, Math.max(0, y130), W, Math.max(0, y100 - y130));
+
+  // Grid lines
+  ctx.strokeStyle = 'rgba(255,255,255,0.05)'; ctx.lineWidth = 1 * dpr;
+  [Math.round(mn/10)*10, Math.round((mn+mx)/20)*10, Math.round(mx/10)*10].forEach(v => {
+    const y = yClamp(v);
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+    ctx.fillStyle = 'rgba(107,114,128,0.6)'; ctx.font = `${9*dpr}px Inter,sans-serif`;
+    ctx.fillText(v, 4, y - 2);
+  });
+
+  // Threshold labels
+  ctx.fillStyle = 'rgba(239,68,68,0.6)'; ctx.font = `${8*dpr}px Inter,sans-serif`;
+  ctx.fillText('130', W - 25*dpr, Math.max(8, y130 - 2));
+
+  // Line gradient based on current HR
+  const lineColor = currentHr > 130 ? '#ef4444' : currentHr > 100 ? '#f97316' : '#60a5fa';
+  ctx.strokeStyle = lineColor; ctx.lineWidth = 2 * dpr;
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+
+  // Glow
+  ctx.shadowColor = lineColor; ctx.shadowBlur = 6 * dpr;
+  ctx.beginPath();
+  hrBuffer.forEach((p, i) => {
+    const x = (i / (HR_WINDOW - 1)) * W;
+    const y = yClamp(p.hr);
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  // Current value dot
+  const lastX = ((hrBuffer.length - 1) / (HR_WINDOW - 1)) * W;
+  const lastY = yClamp(currentHr);
+  ctx.fillStyle = lineColor;
+  ctx.beginPath(); ctx.arc(lastX, lastY, 4 * dpr, 0, Math.PI * 2); ctx.fill();
+}
+
+function hrColor(hr) {
+  if (hr > 130 || hr < 40) return '#f87171';
+  if (hr > 110 || hr < 50) return '#fb923c';
+  return '#e2e8f0';
+}
+
+function news2Color(n) {
+  if (n >= 7) return '#ef4444';
+  if (n >= 5) return '#f97316';
+  if (n >= 3) return '#f59e0b';
+  return '#4ade80';
+}
+
+// ─── Escalation display ───────────────────────────────────────────────────────
+const ESC_META = [
+  { icon:'🟢', label:'Level 0 — Routine Monitoring',         badge:'ROUTINE',   badge_cls:'text-green-400 border-green-500/30 bg-green-500/10' },
+  { icon:'🟡', label:'Level 1 — Enhanced Monitoring',        badge:'ENHANCED',  badge_cls:'text-yellow-400 border-yellow-500/30 bg-yellow-500/10' },
+  { icon:'🟠', label:'Level 2 — Urgent Physician Contact',   badge:'URGENT',    badge_cls:'text-orange-400 border-orange-500/30 bg-orange-500/10' },
+  { icon:'🔴', label:'Level 3 — Emergency Services',         badge:'EMERGENCY', badge_cls:'text-red-400 border-red-500/30 bg-red-500/10' },
+];
+
+function renderEscalation(level, text) {
+  if (!text) return;
+  const box  = document.getElementById('escalation-box');
+  const meta = ESC_META[level] ?? ESC_META[0];
+  box.className = `rounded-xl p-4 border mt-3 esc-${level}`;
+  box.classList.remove('hidden');
+  document.getElementById('esc-icon').textContent  = meta.icon;
+  document.getElementById('esc-label').textContent = meta.label;
+  document.getElementById('esc-label').className   = `text-sm font-bold mt-0.5 esc-label-${level}`;
+  const badge = document.getElementById('esc-level-badge');
+  badge.textContent = meta.badge;
+  badge.className   = `ml-auto text-xs font-bold px-2 py-0.5 rounded-full border ${meta.badge_cls}`;
+  document.getElementById('esc-text').textContent  = text;
 }
 
 // ─── NEW PATIENT WIZARD ───────────────────────────────────────────────────────
@@ -1385,6 +2202,197 @@ function closeLogDetail() { document.getElementById('log-detail-modal').classLis
 ['logs-modal','log-detail-modal','np-modal'].forEach(id => {
   document.getElementById(id).addEventListener('click', e => { if(e.target===e.currentTarget) { if(id==='np-modal') closeNewPatient(); else document.getElementById(id).classList.add('hidden'); } });
 });
+
+// ─── Web Research ─────────────────────────────────────────────────────────────
+
+let researchES = null;
+let researchRunning = false;
+const progressRows = {};   // source → row element
+
+function openResearch() {
+  if (!selectedPatient) return;
+  document.getElementById('research-panel').classList.remove('hidden');
+  document.getElementById('research-panel').scrollIntoView({behavior: 'smooth', block: 'nearest'});
+
+  // If we already have cached results, show them immediately
+  if (selectedPatient._researchData) {
+    renderResearch(selectedPatient._researchData);
+    return;
+  }
+  // Otherwise prompt user to run
+}
+
+function closeResearch() {
+  document.getElementById('research-panel').classList.add('hidden');
+}
+
+function runResearch() {
+  if (!selectedPatient || researchRunning) return;
+  researchRunning = true;
+
+  const btn = document.getElementById('research-btn');
+  btn.disabled = true;
+  btn.textContent = '⏳ Fetching…';
+
+  const panel = document.getElementById('research-panel');
+  panel.classList.remove('hidden');
+  panel.scrollIntoView({behavior: 'smooth', block: 'nearest'});
+
+  const prog = document.getElementById('research-progress');
+  prog.innerHTML = '<p class="text-xs text-slate-500 font-semibold mb-2">Fetching medical literature…</p>';
+  document.getElementById('research-results').classList.add('hidden');
+  document.getElementById('research-rerun-btn').classList.add('hidden');
+
+  for (const k in progressRows) delete progressRows[k];
+
+  if (researchES) researchES.close();
+  researchES = new EventSource(`/api/research/${selectedPatient.id}`);
+
+  researchES.onmessage = (e) => {
+    let d; try { d = JSON.parse(e.data); } catch { return; }
+
+    if (d.type === 'progress') {
+      upsertProgressRow(d.source, d.status, false);
+    } else if (d.type === 'research_complete') {
+      upsertProgressRow('Claude', 'Synthesis complete ✓', true);
+      selectedPatient._researchData = d.data;
+      renderResearch(d.data);
+      researchES.close();
+      finishResearch();
+    } else if (d.type === 'error') {
+      const prog = document.getElementById('research-progress');
+      const err = document.createElement('p');
+      err.className = 'text-xs text-red-400 mt-2';
+      err.textContent = `Error: ${d.message}`;
+      prog.appendChild(err);
+      researchES.close();
+      finishResearch();
+    }
+  };
+  researchES.onerror = () => { researchES.close(); finishResearch(); };
+}
+
+function finishResearch() {
+  researchRunning = false;
+  const btn = document.getElementById('research-btn');
+  btn.disabled = false;
+  btn.textContent = '🔬 Research';
+  document.getElementById('research-rerun-btn').classList.remove('hidden');
+}
+
+function upsertProgressRow(source, status, done) {
+  const prog = document.getElementById('research-progress');
+  if (progressRows[source]) {
+    progressRows[source].querySelector('.src-status').textContent = status;
+    if (done) progressRows[source].classList.add('done');
+  } else {
+    const row = document.createElement('div');
+    row.className = `research-progress-row${done ? ' done' : ''}`;
+    const icon = { 'PubMed': '📄', 'Cleveland Clinic': '🏥', 'NIH MedlinePlus': '🏛', 'NHLBI': '🏛', 'AAOS OrthoInfo': '🦴', 'Claude': '🤖' }[source] || '🌐';
+    row.innerHTML = `<span class="src-label">${icon} ${esc(source)}</span><span class="src-status">${esc(status)}</span>`;
+    prog.appendChild(row);
+    progressRows[source] = row;
+  }
+}
+
+function renderResearch(data) {
+  if (!data || data.error) {
+    document.getElementById('research-progress').innerHTML +=
+      `<p class="text-xs text-red-400 mt-2">${esc(data?.error || 'Unknown error')}</p>`;
+    return;
+  }
+
+  document.getElementById('research-results').classList.remove('hidden');
+
+  // Diagnosis context
+  document.getElementById('res-context').textContent = data.diagnosis_context || '';
+  const surgEl = document.getElementById('res-surgery-reason');
+  if (data.surgery_reason) {
+    surgEl.textContent = data.surgery_reason;
+    surgEl.classList.remove('hidden');
+  } else {
+    surgEl.classList.add('hidden');
+  }
+
+  // Recovery timeline
+  const tl = data.recovery_timeline || {};
+  document.getElementById('res-timeline').innerHTML = [
+    ['Week 1', tl.week_1],
+    ['Week 2', tl.week_2],
+    ['Month 1', tl.month_1],
+  ].filter(([,v]) => v).map(([label, text]) => `
+    <div class="rounded-xl p-3 border border-white/7" style="background:rgba(255,255,255,0.03)">
+      <p class="text-xs font-bold text-slate-400 mb-1">${label}</p>
+      <p class="text-xs text-slate-400 leading-relaxed">${esc(text)}</p>
+    </div>`).join('');
+
+  // Complications
+  const comps = data.common_complications || [];
+  document.getElementById('res-complications').innerHTML = comps.map(c => `
+    <div class="complication-card">
+      <div class="flex items-start justify-between gap-3 mb-2">
+        <div>
+          <span class="text-sm font-semibold text-slate-200">${esc(c.name || '')}</span>
+          ${c.incidence ? `<span class="text-xs text-slate-500 ml-2">${esc(c.incidence)}</span>` : ''}
+        </div>
+        ${c.onset_window ? `<span class="text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 flex-shrink-0">${esc(c.onset_window)}</span>` : ''}
+      </div>
+      ${(c.warning_signs||[]).length ? `
+        <div class="flex flex-wrap gap-1.5 mb-1.5">
+          ${c.warning_signs.map(s => `<span class="text-xs px-2 py-0.5 rounded-full bg-red-500/8 text-red-400 border border-red-500/18">${esc(s)}</span>`).join('')}
+        </div>` : ''}
+      ${c.monitoring_action ? `<p class="text-xs text-slate-500 mt-1">${esc(c.monitoring_action)}</p>` : ''}
+    </div>`).join('');
+
+  // Red flags
+  const flags = data.red_flags || [];
+  document.getElementById('res-redflags').innerHTML = flags.map(f =>
+    `<li class="text-xs text-slate-300 leading-relaxed flex gap-2">
+      <span class="text-red-500 flex-shrink-0 mt-0.5">▸</span>
+      <span>${esc(f)}</span>
+    </li>`
+  ).join('');
+
+  // Evidence highlights
+  const evid = data.evidence_highlights || [];
+  document.getElementById('res-evidence').innerHTML = evid.map(e => `
+    <div class="evidence-card">
+      <div class="flex items-center gap-2 mb-1.5">
+        <span class="text-xs font-semibold text-slate-300">${esc(e.source || '')}</span>
+        ${e.url ? `<a href="${esc(e.url)}" target="_blank" class="text-xs text-blue-400 hover:underline truncate max-w-xs">${esc(e.url.replace(/^https?:\/\//, '').split('/').slice(0,3).join('/'))}</a>` : ''}
+      </div>
+      <p class="text-xs text-slate-300 leading-relaxed mb-1">${esc(e.key_finding || '')}</p>
+      ${e.clinical_relevance ? `<p class="text-xs text-violet-400 italic">${esc(e.clinical_relevance)}</p>` : ''}
+    </div>`).join('');
+
+  // Tailored narrative
+  const narr = data.tailored_risk_narrative || '';
+  document.getElementById('res-narrative').innerHTML = narr.split('\n\n').filter(Boolean).map(p =>
+    `<p>${esc(p)}</p>`).join('');
+
+  // Sources
+  const sources = data.sources_fetched || [];
+  document.getElementById('res-sources').innerHTML = sources.map(s =>
+    `<a href="${esc(s.url)}" target="_blank"
+      class="source-pill ${s.type === 'journal' ? 'source-journal' : 'source-clinical'} flex items-center gap-1 no-underline hover:opacity-80 transition-opacity">
+      ${s.type === 'journal' ? '📄' : '🏥'} ${esc(s.name)}${s.pmid ? ` PMID:${s.pmid}` : ''}
+    </a>`
+  ).join('');
+}
+
+// Override openResearch to auto-run if no cached data
+const _openResearch = openResearch;
+function openResearch() {
+  if (!selectedPatient) return;
+  document.getElementById('research-panel').classList.remove('hidden');
+  document.getElementById('research-panel').scrollIntoView({behavior:'smooth', block:'nearest'});
+  if (selectedPatient._researchData) {
+    renderResearch(selectedPatient._researchData);
+    document.getElementById('research-rerun-btn').classList.remove('hidden');
+  } else {
+    runResearch();
+  }
+}
 
 // ─── Utility ──────────────────────────────────────────────────────────────────
 function esc(s) {

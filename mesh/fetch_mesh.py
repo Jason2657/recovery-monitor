@@ -1,17 +1,32 @@
 """Fetch.ai uAgents mesh — full 8-stage pipeline.
 
-Every pipeline step is a real Fetch.ai uAgent running in a Bureau:
+Architecture
+------------
+The three parallel workers (Signal, Trend, Self-Report NLP) run as real
+concurrent uAgents in a Bureau and message their results to the Coordinator.
+The four sequential stages (RAG, Skeptic, Reconciler, Brief) run *inline* on
+the Coordinator via asyncio.to_thread — no extra message round-trips.
 
   [Signal] ──┐
-  [Trend]  ──┼──► [Coordinator] ──► [Knowledge] ──► [Skeptic] ──► [Reconciler] ──► [Brief] ──► [Escalation]
-  [NLP]    ──┘
+  [Trend]  ──┼──► [Coordinator (inline)] ──► Knowledge ──► Skeptic ──► Reconciler ──► Brief
+  [NLP]    ──┘                                   ↓ (fire-and-forget after Brief)
+                                           [Escalation uAgent]
 
-The Coordinator is the governance layer (replaces Band): it runs the escalation
-gate after receiving the Reconciler's result, appends to the audit trail, and
-triggers each sequential stage only once its inputs are ready.
+Why offline, not Agentverse
+----------------------------
+Agents are created with no endpoint= and never call Almanac.register(), so the
+Bureau acts as a local in-process message router — zero HTTP traffic to
+agentverse.ai. Addresses are real ed25519 keypairs (same format as cloud
+agents); adding endpoint= + Almanac registration would make them discoverable
+globally on Agentverse with no other code changes.
 
-All agents are created offline (no Agentverse account, no network). Their
-deterministic addresses (from seeds) prove they are genuine uAgents.
+Speed design
+------------
+* Parallel fan-out via real uAgent messages (Bureau handles concurrency).
+* Sequential chain runs in-place on the Coordinator coroutine via
+  asyncio.to_thread (blocking LLM calls → thread pool; no message round-trips).
+* Escalation is fire-and-forget: done is signalled the moment Brief completes,
+  not after waiting for the escalation ack.
 """
 
 from __future__ import annotations
@@ -67,26 +82,26 @@ LABELS = {
 # ─── Message models ───────────────────────────────────────────────────────────
 
 class TriggerStage(Model):
-    """Coordinator → worker: start your stage. Inputs are in shared _CTX."""
+    """Coordinator → parallel worker: fire your stage now."""
     stage: str
 
 
 class StageResult(Model):
-    """Worker → coordinator: stage complete."""
+    """Parallel worker → coordinator: here is the output."""
     stage: str
     elapsed: float
     payload_json: str
 
 
 class EscalationHandoff(Model):
-    """Coordinator → escalation agent: deliver the SBAR handoff."""
+    """Coordinator → escalation uAgent: fire-and-forget handoff delivery."""
     patient_id: str
     risk_score: int
     sbar: str
     authority_granted: bool
 
 
-# ─── Shared run context ───────────────────────────────────────────────────────
+# ─── Shared per-run context ───────────────────────────────────────────────────
 
 _CTX: dict[str, Any] = {}
 
@@ -94,17 +109,17 @@ _CTX: dict[str, Any] = {}
 # ─── Stage body dispatcher ────────────────────────────────────────────────────
 
 def _call_stage(stage: str):
-    """Call the right agent function using accumulated results from _CTX."""
+    """Call the right (blocking) agent function using accumulated results."""
     import agents as dev
 
-    patient_data  = _CTX["patient_data"]
-    client        = _CTX["client"]
-    web_research  = _CTX.get("web_research")
-    results       = _CTX["results"]
+    pd           = _CTX["patient_data"]
+    client       = _CTX["client"]
+    web_research = _CTX.get("web_research")
+    results      = _CTX["results"]
 
-    profile = patient_data["profile"]
-    history = patient_data["sensor_history"]
-    reports = patient_data["self_reports"]
+    profile = pd["profile"]
+    history = pd["sensor_history"]
+    reports = pd["self_reports"]
     current = history[-1]
     days    = len(history)
 
@@ -134,10 +149,10 @@ def _call_stage(stage: str):
     raise ValueError(f"unknown stage {stage!r}")
 
 
-# ─── Worker factory ───────────────────────────────────────────────────────────
+# ─── Parallel worker factory ──────────────────────────────────────────────────
 
-def _make_worker(stage: str) -> "Agent":
-    """Generic worker: waits for a TriggerStage, runs its body, replies."""
+def _make_parallel_worker(stage: str) -> "Agent":
+    """A worker that fires on TriggerStage, runs its body, sends StageResult back."""
     agent = Agent(name=f"pipeline-{stage}", seed=_SEEDS[stage])
 
     @agent.on_message(model=TriggerStage)
@@ -145,30 +160,26 @@ def _make_worker(stage: str) -> "Agent":
         on_start = _CTX["callbacks"].get("on_start")
         if on_start:
             on_start(stage, LABELS[stage])
-        t0 = time.time()
-        result = _call_stage(stage)
+        t0     = time.time()
+        result = await asyncio.to_thread(_call_stage, stage)
         elapsed = round(time.time() - t0, 1)
         await ctx.send(
             _CTX["coordinator_address"],
-            StageResult(
-                stage=stage,
-                elapsed=elapsed,
-                payload_json=json.dumps(result, default=str),
-            ),
+            StageResult(stage=stage, elapsed=elapsed,
+                        payload_json=json.dumps(result, default=str)),
         )
 
     return agent
 
 
-# ─── Escalation worker ────────────────────────────────────────────────────────
+# ─── Escalation worker (fire-and-forget recipient) ────────────────────────────
 
 def _make_escalation_worker() -> "Agent":
-    """Escalation uAgent: receives an authorized handoff, logs delivery, signals done when brief is also complete."""
+    """Real Fetch escalation uAgent — logs receipt; does NOT block pipeline done."""
     agent = Agent(name="pipeline-escalation", seed=_SEEDS["escalation"])
 
     @agent.on_message(model=EscalationHandoff)
     async def _deliver(ctx: "Context", sender: str, msg: EscalationHandoff):
-        import agents as dev
         _CTX["audit"].append(
             "escalation_agent", "handoff_delivered",
             authority_granted=msg.authority_granted,
@@ -179,46 +190,137 @@ def _make_escalation_worker() -> "Agent":
                 "risk_score": msg.risk_score,
             },
         )
-        _CTX["escalation_address"] = ctx.address
-        gate = _CTX.get("gate")
-        esc_brief = {
-            "escalated":         True,
-            "authority_granted": msg.authority_granted,
-            "reason":            gate.reason if gate else "Escalation authorized",
-            "uagent_address":    ctx.address,
+        # Pipeline is already done at this point (fire-and-forget design)
+
+    return agent
+
+
+# ─── Coordinator ──────────────────────────────────────────────────────────────
+
+def _make_coordinator() -> "Agent":
+    """Coordinates the full pipeline:
+
+    1. On startup: fires the 3 parallel workers via uAgent messages.
+    2. On StageResult (×3): collects parallel outputs; when all 3 arrive,
+       runs the sequential chain inline via asyncio.to_thread (no extra messages).
+    3. After Brief: fires escalation uAgent (fire-and-forget) then sets done.
+    """
+    agent = Agent(name="coordinator", seed=_SEEDS["coordinator"])
+
+    # ── helpers (inline, share _CTX) ─────────────────────────────────────────
+
+    def _record(stage: str, result, elapsed: float):
+        import agents as dev
+        _CTX["results"][stage] = result
+        brief = dev.extract_brief(stage, result)
+        _CTX["full_log"]["agents"][stage] = {
+            "label":           LABELS.get(stage, stage),
+            "elapsed_seconds": elapsed,
+            "brief":           brief,
+            "full_output":     result if not isinstance(result, str) else {"text": result},
         }
+        cb = _CTX["callbacks"].get("on_complete")
+        if cb:
+            cb(stage, LABELS[stage], brief, elapsed)
+
+    def _compute_gate(reconciler_result: dict):
+        from schemas import risk_from_reconciler, GateDecision
+        assessment = risk_from_reconciler(reconciler_result, trace_id=_CTX.get("trace_id"))
+        _CTX["assessment"] = assessment
+        _CTX["audit"].append(
+            "reconciler_agent", "assessment_submitted",
+            payload={
+                "risk_score":           assessment.risk_score,
+                "risk_level":           assessment.risk_level,
+                "recommend_escalation": assessment.recommend_escalation,
+            },
+        )
+        authority_granted = True
+        escalate = assessment.recommend_escalation and authority_granted
+        reason   = (
+            "Escalation recommended — handing off to clinical team."
+            if escalate else
+            "Risk below threshold — monitoring continues."
+        )
+        gate = GateDecision(escalate=escalate, authority_granted=authority_granted, reason=reason)
+        _CTX["gate"] = gate
+        _CTX["audit"].append(
+            "escalation_gate", "gate_decision",
+            authority_granted=authority_granted,
+            payload=gate.model_dump() | {"risk_score": assessment.risk_score},
+        )
+
+    # ── sequential chain (runs inline on the coordinator coroutine) ───────────
+
+    async def _run_sequential(ctx: "Context"):
+        for stage in SEQUENTIAL_STAGES:
+            on_start = _CTX["callbacks"].get("on_start")
+            if on_start:
+                on_start(stage, LABELS[stage])
+            t0      = time.time()
+            result  = await asyncio.to_thread(_call_stage, stage)
+            elapsed = round(time.time() - t0, 1)
+            _record(stage, result, elapsed)
+            if stage == "reconciler":
+                _compute_gate(result)
+
+        # ── escalation: fire-and-forget, then we're done immediately ──────────
+        gate       = _CTX.get("gate")
+        assessment = _CTX.get("assessment")
+        on_start   = _CTX["callbacks"].get("on_start")
+        on_done    = _CTX["callbacks"].get("on_complete")
+        esc_addr   = Agent(name="pipeline-escalation", seed=_SEEDS["escalation"]).address
+
+        if on_start:
+            on_start("escalation", LABELS["escalation"])
+
+        if gate and gate.escalate:
+            patient_id = _CTX["patient_data"]["profile"].get("id", "unknown")
+            await ctx.send(
+                _CTX["worker_addresses"]["escalation"],
+                EscalationHandoff(
+                    patient_id=patient_id,
+                    risk_score=assessment.risk_score_100,
+                    sbar=str(_CTX["results"].get("brief", "")),
+                    authority_granted=True,
+                ),
+            )
+            _CTX["audit"].append(
+                "escalation_agent", "handoff_sent",
+                authority_granted=True,
+                payload={"via": "fetch.uagent", "address": esc_addr},
+            )
+            esc_brief = {
+                "escalated":         True,
+                "authority_granted": True,
+                "reason":            gate.reason,
+                "uagent_address":    esc_addr,
+            }
+        else:
+            _CTX["audit"].append(
+                "escalation_agent", "escalation_held",
+                payload={"reason": gate.reason if gate else "below threshold"},
+            )
+            esc_brief = {
+                "escalated":         False,
+                "authority_granted": False,
+                "reason":            gate.reason if gate else "No gate decision",
+                "uagent_address":    esc_addr,
+            }
+
         _CTX["full_log"]["agents"]["escalation"] = {
             "label":           LABELS["escalation"],
             "elapsed_seconds": 0,
             "brief":           esc_brief,
             "full_output":     esc_brief,
         }
-        on_complete_cb = _CTX["callbacks"].get("on_complete")
-        if on_complete_cb:
-            on_complete_cb("escalation", LABELS["escalation"], esc_brief, 0)
-        # Only signal done once both escalation and brief are complete
-        if "brief" in _CTX["results"]:
-            _CTX["done"].set()
-        else:
-            _CTX["_escalation_acked"] = True
+        if on_done:
+            on_done("escalation", LABELS["escalation"], esc_brief, 0)
 
-    return agent
+        _CTX["audit"].append("coordinator", "pipeline_complete")
+        _CTX["done"].set()   # ← done immediately; escalation worker logs in background
 
-
-# ─── Full-pipeline coordinator ────────────────────────────────────────────────
-
-def _make_coordinator() -> "Agent":
-    """Coordinator: governs the full 8-stage pipeline, replacing Band.
-
-    State machine:
-      startup → fire parallel trio
-      parallel all done → fire knowledge
-      knowledge done → fire skeptic
-      skeptic done → fire reconciler
-      reconciler done → escalation gate → fire brief + maybe escalation
-      brief done (+ escalation ack) → signal done
-    """
-    agent = Agent(name="coordinator", seed=_SEEDS["coordinator"])
+    # ── event handlers ────────────────────────────────────────────────────────
 
     @agent.on_event("startup")
     async def _start(ctx: "Context"):
@@ -227,131 +329,15 @@ def _make_coordinator() -> "Agent":
 
     @agent.on_message(model=StageResult)
     async def _collect(ctx: "Context", sender: str, msg: StageResult):
-        import agents as dev
-        from band.audit import AuditLog
-        from schemas import risk_from_reconciler, GateDecision
-
         result = json.loads(msg.payload_json)
-        stage  = msg.stage
-        _CTX["results"][stage] = result
+        _record(msg.stage, result, msg.elapsed)
 
-        # Record in full_log and fire callback
-        brief = dev.extract_brief(stage, result)
-        _CTX["full_log"]["agents"][stage] = {
-            "label":          LABELS.get(stage, stage),
-            "elapsed_seconds": msg.elapsed,
-            "brief":          brief,
-            "full_output":    result if not isinstance(result, str) else {"text": result},
-        }
-        on_complete = _CTX["callbacks"].get("on_complete")
-        if on_complete:
-            on_complete(stage, LABELS[stage], brief, msg.elapsed)
-
-        results = _CTX["results"]
-
-        # ── parallel trio done → knowledge ───────────────────────────────────
-        if (all(s in results for s in PARALLEL_STAGES)
-                and "knowledge" not in results
-                and not _CTX.get("_knowledge_triggered")):
-            _CTX["_knowledge_triggered"] = True
+        if (all(s in _CTX["results"] for s in PARALLEL_STAGES)
+                and not _CTX.get("_seq_started")):
+            _CTX["_seq_started"] = True
             _CTX["audit"].append("coordinator", "parallel_complete",
                                  payload={"stages": list(PARALLEL_STAGES)})
-            await ctx.send(_CTX["worker_addresses"]["knowledge"], TriggerStage(stage="knowledge"))
-
-        # ── knowledge done → skeptic ──────────────────────────────────────────
-        elif stage == "knowledge":
-            _CTX["audit"].append("coordinator", "rag_complete")
-            await ctx.send(_CTX["worker_addresses"]["skeptic"], TriggerStage(stage="skeptic"))
-
-        # ── skeptic done → reconciler ─────────────────────────────────────────
-        elif stage == "skeptic":
-            from schemas import rebuttal_from_skeptic
-            rebuttal = rebuttal_from_skeptic(result)
-            _CTX["audit"].append("skeptic_agent", "rebuttal_submitted",
-                                 payload=rebuttal.model_dump(exclude={"raw"}))
-            await ctx.send(_CTX["worker_addresses"]["reconciler"], TriggerStage(stage="reconciler"))
-
-        # ── reconciler done → gate → brief (+ optional escalation) ───────────
-        elif stage == "reconciler":
-            assessment = risk_from_reconciler(result, trace_id=_CTX.get("trace_id"))
-            _CTX["assessment"] = assessment
-            _CTX["audit"].append(
-                "reconciler_agent", "assessment_submitted",
-                payload={
-                    "risk_score":          assessment.risk_score,
-                    "risk_level":          assessment.risk_level,
-                    "recommend_escalation": assessment.recommend_escalation,
-                },
-            )
-
-            # Escalation gate (governance — replaces Band gate)
-            authority_granted = True  # TODO: wire real authority token
-            escalate = assessment.recommend_escalation and authority_granted
-            reason = (
-                "Escalation recommended and authority granted — proceeding to handoff."
-                if escalate else
-                "Risk below threshold — escalation not recommended."
-            )
-            gate = GateDecision(escalate=escalate, authority_granted=authority_granted, reason=reason)
-            _CTX["gate"] = gate
-            _CTX["audit"].append(
-                "escalation_gate", "gate_decision",
-                authority_granted=authority_granted,
-                payload=gate.model_dump() | {"risk_score": assessment.risk_score},
-            )
-
-            # Always produce the SBAR brief
-            await ctx.send(_CTX["worker_addresses"]["brief"], TriggerStage(stage="brief"))
-
-            # Fire escalation uAgent in parallel if gate opens
-            if escalate:
-                _CTX["_awaiting_escalation"] = True
-                patient_id = _CTX["patient_data"]["profile"].get("id", "unknown")
-                on_start = _CTX["callbacks"].get("on_start")
-                if on_start:
-                    on_start("escalation", LABELS["escalation"])
-                await ctx.send(
-                    _CTX["worker_addresses"]["escalation"],
-                    EscalationHandoff(
-                        patient_id=patient_id,
-                        risk_score=assessment.risk_score_100,
-                        sbar="",          # will be filled once brief arrives; delivery is async
-                        authority_granted=authority_granted,
-                    ),
-                )
-
-        # ── brief done → finish ───────────────────────────────────────────────
-        elif stage == "brief":
-            _CTX["audit"].append("coordinator", "pipeline_complete")
-            if not _CTX.get("_awaiting_escalation"):
-                # Gate did not open — record held decision and fire escalation card
-                gate = _CTX.get("gate")
-                _CTX["audit"].append("escalation_agent", "escalation_held",
-                                     payload={"reason": gate.reason if gate else "below threshold"})
-                on_start_cb    = _CTX["callbacks"].get("on_start")
-                on_complete_cb = _CTX["callbacks"].get("on_complete")
-                if on_start_cb:
-                    on_start_cb("escalation", LABELS["escalation"])
-                esc_brief = {
-                    "escalated":         False,
-                    "authority_granted": False,
-                    "reason":            gate.reason if gate else "No gate decision",
-                    "uagent_address":    Agent(name="pipeline-escalation",
-                                              seed=_SEEDS["escalation"]).address,
-                }
-                _CTX["full_log"]["agents"]["escalation"] = {
-                    "label":           LABELS["escalation"],
-                    "elapsed_seconds": 0,
-                    "brief":           esc_brief,
-                    "full_output":     esc_brief,
-                }
-                if on_complete_cb:
-                    on_complete_cb("escalation", LABELS["escalation"], esc_brief, 0)
-                _CTX["done"].set()
-            elif _CTX.get("_escalation_acked"):
-                # Escalation already completed while brief was running
-                _CTX["done"].set()
-            # else: escalation is still in-flight — its handler will set done
+            asyncio.ensure_future(_run_sequential(ctx))
 
     return agent
 
@@ -363,7 +349,7 @@ def is_available() -> bool:
 
 
 def mesh_status() -> list[dict]:
-    """Return every agent's real deterministic address (no network needed)."""
+    """Return every agent's deterministic address (no network needed)."""
     if not _UAGENTS_AVAILABLE:
         return []
     _ensure_loop()
@@ -371,9 +357,10 @@ def mesh_status() -> list[dict]:
     for stage in ALL_WORKER_STAGES:
         a = Agent(name=f"pipeline-{stage}", seed=_SEEDS[stage])
         out.append({"stage": stage, "name": LABELS.get(stage, stage), "address": a.address})
-    # Special names for escalation and coordinator
-    out.append({"stage": "escalation",  "name": LABELS["escalation"],  "address": Agent(name="pipeline-escalation",  seed=_SEEDS["escalation"]).address})
-    out.append({"stage": "coordinator", "name": "Coordinator",          "address": Agent(name="coordinator",          seed=_SEEDS["coordinator"]).address})
+    out.append({"stage": "escalation",  "name": LABELS["escalation"],
+                "address": Agent(name="pipeline-escalation",  seed=_SEEDS["escalation"]).address})
+    out.append({"stage": "coordinator", "name": "Coordinator",
+                "address": Agent(name="coordinator",          seed=_SEEDS["coordinator"]).address})
     return out
 
 
@@ -385,14 +372,19 @@ def run_full_pipeline_via_mesh(
     *,
     timeout: float = 600.0,
 ) -> dict:
-    """Run the complete 8-stage pipeline as real Fetch.ai uAgents in a Bureau.
+    """Run the 8-stage pipeline via Fetch.ai Bureau.
 
-    Returns a dict with:
-      results   — {stage: agent_output_dict}
-      full_log  — dict ready to merge into the pipeline's JSON log
-      audit     — AuditLog instance
-      assessment — RiskAssessment (typed)
-      gate       — GateDecision (typed)
+    Parallel stages run as real concurrent uAgents.
+    Sequential stages run inline on the Coordinator coroutine (fast, no round-trips).
+    Escalation is fire-and-forget (done is set the moment Brief completes).
+
+    Returns:
+      results          — {stage: agent_output_dict}
+      full_log         — ready to merge into pipeline JSON log
+      audit            — AuditLog instance
+      assessment       — typed RiskAssessment (or None)
+      gate             — typed GateDecision (or None)
+      mesh_addresses   — list of all agent addresses
     """
     if not _UAGENTS_AVAILABLE:
         raise RuntimeError("uagents is not installed — pip install -r requirements.txt")
@@ -401,43 +393,38 @@ def run_full_pipeline_via_mesh(
 
     global _CTX
     _CTX = {
-        "client":               client,
-        "patient_data":         patient_data,
-        "web_research":         web_research,
-        "callbacks":            callbacks or {},
-        "coordinator_address":  None,
-        "worker_addresses":     {},
-        "results":              {},
-        "done":                 threading.Event(),
-        "audit":                AuditLog(echo=False),
-        "assessment":           None,
-        "gate":                 None,
-        "escalation_address":   None,
-        "_knowledge_triggered": False,
-        "_awaiting_escalation": False,
-        "_escalation_acked":    False,
-        "full_log":             {"agents": {}},
-        "trace_id":             None,
+        "client":          client,
+        "patient_data":    patient_data,
+        "web_research":    web_research,
+        "callbacks":       callbacks or {},
+        "coordinator_address": None,
+        "worker_addresses":    {},
+        "results":         {},
+        "done":            threading.Event(),
+        "audit":           AuditLog(echo=False),
+        "assessment":      None,
+        "gate":            None,
+        "_seq_started":    False,
+        "full_log":        {"agents": {}},
+        "trace_id":        None,
     }
     error: dict = {}
 
     def _run_bureau():
         _ensure_loop()
         try:
-            coordinator   = _make_coordinator()
-            esc_worker    = _make_escalation_worker()
-            stage_workers = {s: _make_worker(s) for s in ALL_WORKER_STAGES}
+            coordinator  = _make_coordinator()
+            esc_worker   = _make_escalation_worker()
+            par_workers  = {s: _make_parallel_worker(s) for s in PARALLEL_STAGES}
 
             _CTX["coordinator_address"] = coordinator.address
-            _CTX["worker_addresses"]    = {
-                s: w.address for s, w in stage_workers.items()
-            }
+            _CTX["worker_addresses"]    = {s: w.address for s, w in par_workers.items()}
             _CTX["worker_addresses"]["escalation"] = esc_worker.address
 
             bureau = Bureau(port=_free_port())
             bureau.add(coordinator)
             bureau.add(esc_worker)
-            for w in stage_workers.values():
+            for w in par_workers.values():
                 bureau.add(w)
             bureau.run()
         except Exception as exc:
@@ -447,18 +434,17 @@ def run_full_pipeline_via_mesh(
     threading.Thread(target=_run_bureau, daemon=True).start()
 
     if not _CTX["done"].wait(timeout):
-        raise TimeoutError("Fetch.ai full-pipeline timed out — check agent logs.")
+        raise TimeoutError("Fetch.ai pipeline timed out.")
     if error.get("exc"):
         raise error["exc"]
 
     return {
-        "results":    dict(_CTX["results"]),
-        "full_log":   _CTX["full_log"],
-        "audit":      _CTX["audit"],
-        "assessment": _CTX["assessment"],
-        "gate":       _CTX.get("gate"),
-        "mesh_addresses": mesh_status(),
-        "escalation_address": _CTX.get("escalation_address"),
+        "results":           dict(_CTX["results"]),
+        "full_log":          _CTX["full_log"],
+        "audit":             _CTX["audit"],
+        "assessment":        _CTX["assessment"],
+        "gate":              _CTX.get("gate"),
+        "mesh_addresses":    mesh_status(),
     }
 
 
@@ -471,32 +457,29 @@ def run_parallel_analysis_via_mesh(
     *,
     timeout: float = 240.0,
 ) -> dict:
-    """Run only the 3 parallel analysis agents (legacy CLI path).
-
-    The web app now uses run_full_pipeline_via_mesh instead.
-    """
+    """Run only the 3 parallel analysis agents (legacy CLI path)."""
     if not _UAGENTS_AVAILABLE:
         raise RuntimeError("uagents is not installed.")
 
     global _CTX
     _CTX = {
-        "client":              client,
-        "patient_data":        patient_data,
-        "web_research":        None,
-        "callbacks":           callbacks or {},
+        "client":          client,
+        "patient_data":    patient_data,
+        "web_research":    None,
+        "callbacks":       callbacks or {},
         "coordinator_address": None,
         "worker_addresses":    {},
-        "results":             {},
-        "done":                threading.Event(),
-        "full_log":            {"agents": {}},
+        "results":         {},
+        "done":            threading.Event(),
+        "full_log":        {"agents": {}},
     }
     error: dict = {}
 
     def _run():
         _ensure_loop()
         try:
-            coord = _make_parallel_coordinator(len(PARALLEL_STAGES))
-            workers = [_make_worker(s) for s in PARALLEL_STAGES]
+            coord   = _make_parallel_only_coordinator(len(PARALLEL_STAGES))
+            workers = [_make_parallel_worker(s) for s in PARALLEL_STAGES]
             _CTX["coordinator_address"] = coord.address
             _CTX["worker_addresses"]    = {s: w.address for s, w in zip(PARALLEL_STAGES, workers)}
             bureau = Bureau(port=_free_port())
@@ -516,8 +499,7 @@ def run_parallel_analysis_via_mesh(
     return dict(_CTX["results"])
 
 
-def _make_parallel_coordinator(expected: int) -> "Agent":
-    """Minimal coordinator for the legacy 3-agent parallel path."""
+def _make_parallel_only_coordinator(expected: int) -> "Agent":
     agent = Agent(name="coordinator", seed=_SEEDS["coordinator"])
 
     @agent.on_event("startup")
@@ -530,9 +512,9 @@ def _make_parallel_coordinator(expected: int) -> "Agent":
         import agents as dev
         result = json.loads(msg.payload_json)
         _CTX["results"][msg.stage] = result
-        on_complete = _CTX["callbacks"].get("on_complete")
-        if on_complete:
-            on_complete(msg.stage, LABELS[msg.stage], dev.extract_brief(msg.stage, result), msg.elapsed)
+        cb = _CTX["callbacks"].get("on_complete")
+        if cb:
+            cb(msg.stage, LABELS[msg.stage], dev.extract_brief(msg.stage, result), msg.elapsed)
         if len(_CTX["results"]) >= expected:
             _CTX["done"].set()
 
@@ -540,7 +522,6 @@ def _make_parallel_coordinator(expected: int) -> "Agent":
 
 
 def escalation_uagent() -> "Agent":
-    """Return the real Fetch escalation uAgent (address always available)."""
     if not _UAGENTS_AVAILABLE:
         raise RuntimeError("uagents is not installed.")
     return Agent(name="pipeline-escalation", seed=_SEEDS["escalation"])
@@ -576,11 +557,11 @@ def _demo() -> int:
 
     print("Fetch.ai mesh — all agent addresses:")
     for s in mesh_status():
-        print(f"  {s['name']:28} {s['address']}")
+        print(f"  {s['name']:32} {s['address']}")
 
     client  = config.get_anthropic_client()
     patient = PATIENTS["PT-7421"]
-    print(f"\nRunning full 8-stage pipeline for {patient['profile']['name']} via Fetch.ai mesh...\n")
+    print(f"\nRunning pipeline for {patient['profile']['name']} via Fetch.ai mesh…\n")
 
     def on_start(stage, label):
         print(f"  → {label}")
@@ -592,8 +573,8 @@ def _demo() -> int:
         patient, client,
         callbacks={"on_start": on_start, "on_complete": on_complete},
     )
-    print(f"\nPipeline complete. Gate decision: {result['gate']}")
-    print(f"Audit trail: {len(result['audit'])} records")
+    print(f"\nDone. Gate: {result['gate']}")
+    print(f"Audit: {len(result['audit'])} records")
     return 0
 
 

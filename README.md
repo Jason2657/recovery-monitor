@@ -2,7 +2,9 @@
 
 AI-powered post-discharge patient monitoring. An 8-agent pipeline detects early clinical deterioration across live vitals, sensor trends, and patient language — and escalates with a structured clinical handoff before it becomes an emergency.
 
-**Backend:** FastAPI + Python &nbsp;|&nbsp; **Frontend:** Vanilla JS, single HTML file &nbsp;|&nbsp; **LLM:** Claude Opus 4
+**Backend:** FastAPI + Python &nbsp;|&nbsp; **Frontend:** Vanilla JS, single HTML file &nbsp;|&nbsp; **LLM:** Claude Opus 4.8
+
+![Nightingale — live multi-agent monitoring dashboard](docs/dashboard.png)
 
 ---
 
@@ -53,8 +55,8 @@ Every pipeline stage is a real `uagents.Agent` running in a local `Bureau`. The 
 
 All agent addresses are deterministic ed25519 keypairs derived from seeds (same format as Agentverse cloud agents). No network required — adding `endpoint=` and Almanac registration would make them discoverable globally with no other code changes.
 
-### Arize / Phoenix
-OpenTelemetry tracing wraps the full pipeline span and each agent step. The Anthropic SDK is auto-instrumented so every Claude call appears as a span. A self-correction loop nudges `RISK_THRESHOLD` ±0.05 on false positives/negatives when a patient has a ground-truth label. No-op unless `ENABLE_TRACING` or `ARIZE_API_KEY` is set.
+### Arize
+OpenTelemetry tracing (via `arize.otel`) wraps the full pipeline span and each agent step; the Anthropic SDK is auto-instrumented so every Claude call appears as a span in **Arize AX**. On top of the traces, an **LLM-as-judge evaluator** scores every run (clinical soundness + SBAR quality) and logs the verdict back as feedback — which we used to find and fix a real agent failure (see [Arize observability](#arize-observability-sponsor-track) below). No-op unless `ARIZE_API_KEY` or `ENABLE_TRACING` is set.
 
 ### Band
 Governance fallback when running without the Fetch mesh. `BandRoom.deliberate()` runs one bounded Skeptic→Reconciler round. `escalation_gate()` performs a human-in-the-loop authority check. Append-only `AuditLog` records every consequential decision timestamped and serialized to JSON.
@@ -110,7 +112,7 @@ Six built-in synthetic patients covering distinct clinical scenarios:
 
 | Patient | Condition | Expected outcome |
 |---|---|---|
-| James Carter (PT-7421) | CHF decompensation | **Escalate** — fluid overload, NEWS2 rising |
+| James Morrison (PT-7421) | CHF decompensation | **Escalate** — fluid overload, NEWS2 rising |
 | Eleanor Park (PT-3892) | Post-TKA surgical site infection | **Escalate** — fever 38.9°C, spreading infection |
 | Robert Chen (PT-5163) | COPD exacerbation recurrence | **Escalate** — SpO2 87%, RR 27, rescue inhaler ×5/day |
 | Maria Gonzalez (PT-8427) | Post-pneumonia deterioration | **Escalate** — fever + declining sats |
@@ -204,7 +206,7 @@ self-correction knob, the tracing no-op fallback, and the Fetch uAgent addresses
 ```
 config.py            model + Anthropic client + the RISK_THRESHOLD knob
 schemas.py           pydantic governance contract (RiskAssessment, GateDecision, AuditRecord, …)
-agents.py            the 7 agent bodies + the governed run_full_pipeline orchestrator
+agents.py            the 8 agent bodies + the governed run_full_pipeline orchestrator
 patient_data.py      synthetic patients + clinical knowledge base
 band/                Band governance: audit · room (deliberate + gate) · adapter
 observability/       Arize: tracing · llm_judge (LLM-as-judge eval) · evaluator (self-correction)
@@ -212,8 +214,7 @@ scripts/eval_suite.py runs the judge across all patients -> traces + evals in Ar
 mesh/                Fetch.ai uAgents Bureau (real message-passing workers)
 run_demo.py          sponsor-aware terminal demo
 main.py              brief terminal runner
-app.py               FastAPI web backend (SSE + Deepgram)
-static/index.html    web UI
+app.py               FastAPI web backend (SSE + Deepgram + Arduino reader)
 web_research.py      PubMed/NIH + Browserbase web research
 static/index.html    web UI (single file, no build step)
 tests/               governance / evaluator / tracing / mesh / import tests
@@ -232,3 +233,5 @@ Risk scores below `RISK_THRESHOLD` (default 0.5) suppress escalation. The Arize 
 ## Hardware (optional)
 
 An Arduino with a tilt sensor and photoresistor plugs in over serial. Tilt events track sleep movement and disturbance counts. The photoresistor detects light-on wake events. Both feed into the live vitals stream at `/api/live/{patient_id}` and appear in the Signal agent's analysis.
+
+![Custom 3D-printed sensor enclosure housing the Arduino (tilt + light sensors)](docs/hardware.png)

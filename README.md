@@ -2,7 +2,7 @@
 
 AI-powered post-discharge patient monitoring. An 8-agent pipeline detects early clinical deterioration across live vitals, sensor trends, and patient language — and escalates with a structured clinical handoff before it becomes an emergency.
 
-**Backend:** FastAPI + Python &nbsp;|&nbsp; **Frontend:** Vanilla JS, single HTML file &nbsp;|&nbsp; **LLM:** Claude Opus 4.8
+**Backend:** FastAPI + Python &nbsp;|&nbsp; **Frontend:** Vanilla JS &nbsp;|&nbsp; **LLM:** Claude Opus 4.8
 
 ![Nightingale — live multi-agent monitoring dashboard](docs/dashboard.png)
 
